@@ -285,7 +285,7 @@ var IMPORTANT_PATH_KEYWORDS = [
 async function fetchSinglePage(url) {
   try {
     var proxyUrl = CORS_PROXY + encodeURIComponent(url);
-    var res = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) });
+    var res = await fetch(proxyUrl, { signal: AbortSignal.timeout(30000) });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     var html = await res.text();
     return html;
@@ -364,7 +364,11 @@ function scoreLink(link) {
 async function crawlSite(url) {
   addLog('トップページを取得中...', 'info');
   var topHtml = await fetchSinglePage(url);
-  if (!topHtml) return null;
+  if (!topHtml) {
+    _crawlDebugInfo = { pages: [{ url: url, status: 'FAILED (timeout/error)', size: 0, text: 'トップページ' }], scoredLinks: [], addresses: [] };
+    addLog('トップページの取得に失敗しました', 'info');
+    return null;
+  }
 
   var topText = extractTextFromHtml(topHtml);
   addLog('トップページ取得完了 (' + topText.length + '文字)', 'success');
