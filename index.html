@@ -22,9 +22,41 @@
         <div class="header__logo-icon">🏠</div>
         <span class="header__logo-text">不動産市場把握AI</span>
       </div>
-      <div class="header__badge">v1.0.1</div>
+      <div class="header__actions">
+        <div class="header__badge">v2.0</div>
+        <button id="settings-btn" class="btn-settings" aria-label="設定">🔑 API設定</button>
+      </div>
     </div>
   </header>
+
+  <!-- Settings Modal -->
+  <div id="settings-modal" class="modal">
+    <div class="modal__content">
+      <div class="modal__header">
+        <h3>🔑 API設定</h3>
+        <button class="modal__close">&times;</button>
+      </div>
+      <div class="modal__body">
+        <p class="modal__desc">Gemini APIキーを入力してください。キーはブラウザのみに保存され、外部サーバーには送信されません。</p>
+
+        <div class="form-group">
+          <label for="gemini-key">Gemini API Key <span class="badge-required">必須</span></label>
+          <input type="password" id="gemini-key" placeholder="AIza..." autocomplete="off">
+          <p class="form-help">
+            <a href="https://aistudio.google.com/apikey" target="_blank" class="guide-link">→ Google AI Studioで無料取得</a>
+          </p>
+        </div>
+
+        <div class="settings-status" id="settings-status">
+          <div class="settings-status__title">ステータス</div>
+          <div id="status-content"></div>
+        </div>
+      </div>
+      <div class="modal__footer">
+        <button id="save-settings-btn" class="btn-primary">保存する</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Hero -->
   <section class="hero">
@@ -56,7 +88,7 @@
               <span class="spinner"></span>
             </button>
           </div>
-          <p class="search__hint">💡 企業のトップページURLを入力してください。リンク先を含め全ページを解析します。</p>
+          <p class="search__hint">💡 企業のトップページURLを入力してください。AIがサイト内容を解析します。</p>
           <div id="error-msg" class="error-msg"></div>
         </div>
 
@@ -65,7 +97,7 @@
           <div class="feature-item">
             <div class="feature-item__icon">🌐</div>
             <div class="feature-item__title">HP全ページ解析</div>
-            <div class="feature-item__desc">リンク先も含めAIが事業内容を分析</div>
+            <div class="feature-item__desc">AIが事業内容を自動分析</div>
           </div>
           <div class="feature-item">
             <div class="feature-item__icon">📊</div>
@@ -80,7 +112,7 @@
         </div>
       </div>
 
-      <!-- OL Character (SVG) -->
+      <!-- OL Character -->
       <div class="hero__character-wrap">
         <img src="OL2.png" class="hero__character" alt="OL Character">
       </div>
@@ -93,23 +125,39 @@
       <div class="progress__steps">
         <div class="progress__step" id="step-crawl">
           <div class="progress__step-icon">🌐</div>
-          <div class="progress__step-text">Webサイトをクロール中...</div>
+          <div class="progress__step-content">
+             <div class="progress__step-title">Webサイト取得</div>
+             <div class="progress__step-desc">ページ内容を取得中...</div>
+          </div>
         </div>
         <div class="progress__step" id="step-analyze">
           <div class="progress__step-icon">🤖</div>
-          <div class="progress__step-text">AIで事業内容を分析中...</div>
-        </div>
-        <div class="progress__step" id="step-location">
-          <div class="progress__step-icon">📍</div>
-          <div class="progress__step-text">所在地を特定中...</div>
+          <div class="progress__step-content">
+             <div class="progress__step-title">AI事業分析</div>
+             <div class="progress__step-desc">事業内容とエリアを特定中...</div>
+          </div>
         </div>
         <div class="progress__step" id="step-market">
           <div class="progress__step-icon">📊</div>
-          <div class="progress__step-text">商圏の市場データを取得中...</div>
+          <div class="progress__step-content">
+             <div class="progress__step-title">市場データ生成</div>
+             <div class="progress__step-desc">AIが商圏データを分析中...</div>
+          </div>
         </div>
         <div class="progress__step" id="step-report">
           <div class="progress__step-icon">📄</div>
-          <div class="progress__step-text">レポートを作成中...</div>
+          <div class="progress__step-content">
+             <div class="progress__step-title">レポート作成</div>
+             <div class="progress__step-desc">PDF生成の準備中...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Detailed Log Area -->
+      <div class="progress__logs">
+        <div class="progress__logs-header">詳細ログ</div>
+        <div id="progress-log-content" class="progress__logs-content">
+          <div class="log-item">待機中...</div>
         </div>
       </div>
     </div>
@@ -137,7 +185,7 @@
   <!-- Footer -->
   <footer class="footer">
     <div class="container">
-      <p class="footer__text">© 2026 不動産市場把握AI — Powered by OpenAI & Open Data</p>
+      <p class="footer__text">© 2026 不動産市場把握AI — Powered by Gemini 2.0 Flash</p>
     </div>
   </footer>
 

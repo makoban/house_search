@@ -1,6 +1,6 @@
 """
 不動産市場把握AI - Market Data Fetcher
-Fetches open data from e-Stat, RESAS, and web scraping for market analysis.
+Fetches open data from e-Stat and web scraping for market analysis.
 """
 
 import requests
@@ -13,16 +13,15 @@ from bs4 import BeautifulSoup
 class MarketDataFetcher:
     """Fetches market data from multiple open data sources."""
 
-    def __init__(self):
-        self.estat_api_key = os.environ.get('ESTAT_API_KEY', '')
-        self.resas_api_key = os.environ.get('RESAS_API_KEY', '')
+    def __init__(self, estat_key=''):
+        self.estat_api_key = estat_key or os.environ.get('ESTAT_API_KEY', '')
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
                           'AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36'
         })
 
-        # Prefecture codes for e-Stat/RESAS
+        # Prefecture codes for e-Stat
         self.prefecture_codes = {
             '北海道': '01', '青森県': '02', '岩手県': '03', '宮城県': '04',
             '秋田県': '05', '山形県': '06', '福島県': '07', '茨城県': '08',
@@ -50,7 +49,7 @@ class MarketDataFetcher:
             'city': city
         }
 
-        # ① Population & Demographics (e-Stat / RESAS)
+        # ① Population & Demographics (e-Stat)
         result['population'] = self._fetch_population(prefecture, city)
 
         # ② Construction Starts
@@ -77,16 +76,7 @@ class MarketDataFetcher:
     # ① POPULATION & DEMOGRAPHICS
     # =========================================
     def _fetch_population(self, prefecture, city):
-        """Fetch population data from RESAS API or e-Stat."""
-        pref_code = self.prefecture_codes.get(prefecture, '')
-
-        # Try RESAS API first
-        if self.resas_api_key and pref_code:
-            try:
-                return self._fetch_population_resas(pref_code, city)
-            except Exception as e:
-                print(f"[MarketData] RESAS population error: {e}")
-
+        """Fetch population data from e-Stat API or web scraping."""
         # Try e-Stat API
         if self.estat_api_key:
             try:
@@ -97,77 +87,6 @@ class MarketDataFetcher:
         # Fallback: web scraping
         return self._fetch_population_web(prefecture, city)
 
-    def _fetch_population_resas(self, pref_code, city):
-        """Fetch population from RESAS API."""
-        # Get city code first
-        url = 'https://opendata.resas-portal.go.jp/api/v1/cities'
-        headers = {'X-API-KEY': self.resas_api_key}
-        params = {'prefCode': int(pref_code)}
-
-        resp = self.session.get(url, headers=headers, params=params, timeout=10)
-        data = resp.json()
-
-        city_code = None
-        city_name_clean = city.replace('市', '').replace('区', '').replace('町', '').replace('村', '')
-        for c in data.get('result', []):
-            if city_name_clean in c.get('cityName', ''):
-                city_code = c['cityCode']
-                break
-
-        if not city_code:
-            raise ValueError(f"City code not found for {city}")
-
-        # Get population composition
-        url2 = 'https://opendata.resas-portal.go.jp/api/v1/population/composition/perYear'
-        params2 = {
-            'prefCode': int(pref_code),
-            'cityCode': city_code,
-            'addArea': ''
-        }
-        resp2 = self.session.get(url2, headers=headers, params=params2, timeout=10)
-        pop_data = resp2.json()
-
-        result = pop_data.get('result', {})
-        bound_data = result.get('data', [])
-
-        total_pop = 0
-        young_pop = 0  # 0-14
-        working_pop = 0  # 15-64
-        elderly_pop = 0  # 65+
-
-        for category in bound_data:
-            label = category.get('label', '')
-            years = category.get('data', [])
-            if not years:
-                continue
-            # Get latest year
-            latest = years[-1]
-            val = latest.get('value', 0)
-
-            if label == '総人口':
-                total_pop = val
-            elif label == '年少人口':
-                young_pop = val
-            elif label == '生産年齢人口':
-                working_pop = val
-            elif label == '老年人口':
-                elderly_pop = val
-
-        # Estimate 30-45 age group (roughly 30% of working age)
-        age_30_45_pct = round(working_pop * 0.30 / total_pop * 100, 1) if total_pop else 0
-        elderly_pct = round(elderly_pop / total_pop * 100, 1) if total_pop else 0
-
-        # Estimate households (average 2.1 persons per household)
-        households = round(total_pop / 2.1)
-
-        return {
-            'total_population': total_pop,
-            'households': households,
-            'age_30_45_pct': age_30_45_pct,
-            'elderly_pct': elderly_pct,
-            'working_age_pct': round(working_pop / total_pop * 100, 1) if total_pop else 0,
-            'source': 'RESAS API'
-        }
 
     def _fetch_population_estat(self, prefecture, city):
         """Fetch population from e-Stat API."""

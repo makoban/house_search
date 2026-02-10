@@ -1,15 +1,21 @@
 """
 不動産市場把握AI - Business Analyzer
-Uses OpenAI GPT to analyze crawled website content and extract business details.
+Uses Google Gemini 2.0 Flash to analyze crawled website content and extract business details.
 """
 
 import json
-from openai import OpenAI
+import os
+import google.generativeai as genai
 
 
 class BusinessAnalyzer:
     def __init__(self, api_key=''):
-        self.client = OpenAI(api_key=api_key) if api_key else None
+        # Argument takes precedence, otherwise env var
+        key = api_key or os.environ.get('GEMINI_API_KEY', '')
+        self.client = None
+        if key:
+            genai.configure(api_key=key)
+            self.client = genai.GenerativeModel('gemini-2.0-flash')
 
     def analyze(self, url, pages):
         """Analyze crawled pages to extract business information."""
@@ -34,7 +40,7 @@ class BusinessAnalyzer:
         return combined[:15000]
 
     def _ai_analysis(self, url, combined_text):
-        """Use OpenAI to analyze business content."""
+        """Use Gemini to analyze business content."""
         prompt = f"""以下は企業Webサイト（{url}）からクロールしたテキストです。
 この企業について詳細に分析して、以下のJSON形式で回答してください。
 
@@ -70,22 +76,15 @@ class BusinessAnalyzer:
 """
 
         try:
-            response = self.client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "あなたは日本の企業・不動産市場に精通した経営コンサルタントです。"
-                                   "Webサイトの内容から企業の事業内容を正確に分析します。"
-                                   "回答は必ず有効なJSON形式のみで返してください。"
-                    },
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.3,
-                max_tokens=2000
+            response = self.client.generate_content(
+                prompt,
+                generation_config=genai.GenerationConfig(
+                    temperature=0.3,
+                    max_output_tokens=2000,
+                )
             )
 
-            content = response.choices[0].message.content.strip()
+            content = response.text.strip()
             # Remove markdown code block if present
             if content.startswith('```'):
                 content = content.split('\n', 1)[1] if '\n' in content else content[3:]
@@ -101,7 +100,7 @@ class BusinessAnalyzer:
             print(f"[Analyzer] Raw content: {content[:500]}")
             return self._basic_analysis(url, [], combined_text)
         except Exception as e:
-            print(f"[Analyzer] OpenAI API error: {e}")
+            print(f"[Analyzer] Gemini API error: {e}")
             return self._basic_analysis(url, [], combined_text)
 
     def _basic_analysis(self, url, pages, combined_text):
@@ -149,7 +148,7 @@ class BusinessAnalyzer:
                 "name": company_name,
                 "address": f"{prefecture} {city}",
                 "business_type": "建築・不動産関連" if is_real_estate else "一般企業",
-                "main_services": "Webサイトから自動検出（AI分析には OPENAI_API_KEY が必要です）",
+                "main_services": "Webサイトから自動検出（AI分析には GEMINI_API_KEY が必要です）",
                 "is_real_estate": is_real_estate,
                 "strengths": "AI分析にはAPIキーが必要です",
                 "weaknesses": "AI分析にはAPIキーが必要です",

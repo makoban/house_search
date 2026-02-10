@@ -1,24 +1,36 @@
 """
-不動産市場把握AI - Main Flask Server
+不動産市場把握AI - Flask Server
 """
 
+import os
+from dotenv import load_dotenv
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import os
 from crawler import WebCrawler
 from analyzer import BusinessAnalyzer
 from market_data import MarketDataFetcher
 
+# Load environment variables from .env
+load_dotenv()
+
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+ESTAT_API_KEY = os.environ.get('ESTAT_API_KEY', '')
+
 app = Flask(__name__)
 CORS(app)
-
-# ---- Config ----
-OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
 
 
 @app.route('/api/health', methods=['GET'])
 def health():
-    return jsonify({'status': 'ok', 'version': '1.0.1'})
+    return jsonify({
+        'status': 'ok',
+        'version': '1.0.1',
+        'ai_model': 'gemini-2.0-flash',
+        'keys_configured': {
+            'gemini': bool(GEMINI_API_KEY),
+            'estat': bool(ESTAT_API_KEY)
+        }
+    })
 
 
 @app.route('/api/crawl', methods=['POST'])
@@ -49,11 +61,14 @@ def analyze():
     url = data.get('url', '')
     pages = data.get('pages', [])
 
+    if not GEMINI_API_KEY:
+        return jsonify({'error': 'Gemini APIキーが設定されていません。server/.env に GEMINI_API_KEY を設定してください。'}), 400
+
     if not pages:
         return jsonify({'error': 'ページデータが必要です'}), 400
 
     try:
-        analyzer = BusinessAnalyzer(api_key=OPENAI_API_KEY)
+        analyzer = BusinessAnalyzer(api_key=GEMINI_API_KEY)
         result = analyzer.analyze(url, pages)
         return jsonify(result)
     except Exception as e:
@@ -70,7 +85,7 @@ def market_data():
         return jsonify({'error': '所在地情報が必要です'}), 400
 
     try:
-        fetcher = MarketDataFetcher()
+        fetcher = MarketDataFetcher(estat_key=ESTAT_API_KEY)
         results = []
         for loc in locations:
             area_data = fetcher.fetch_all(loc)
@@ -81,6 +96,10 @@ def market_data():
 
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    debug = os.environ.get('FLASK_ENV', 'development') == 'development'
-    app.run(host='0.0.0.0', port=port, debug=debug)
+    print("=" * 50)
+    print("不動産市場把握AI Server v1.0.1")
+    print(f"AI Model: Gemini 2.0 Flash")
+    print(f"Gemini Key: {'✅ 設定済' if GEMINI_API_KEY else '❌ 未設定'}")
+    print(f"e-Stat Key: {'✅ 設定済' if ESTAT_API_KEY else '⚠️ 未設定（任意）'}")
+    print("=" * 50)
+    app.run(debug=True, host='0.0.0.0', port=5000)
