@@ -287,21 +287,40 @@ var IMPORTANT_PATH_KEYWORDS = [
   '会社概要', '会社案内', '企業情報', '事業所', 'greeting'
 ];
 
+var _stickyProxyIdx = -1; // 成功したプロキシを記憶
+
 async function fetchSinglePage(url) {
-  for (var p = 0; p < CORS_PROXIES.length; p++) {
+  // 以前成功したプロキシを最優先で試行
+  var order = [];
+  if (_stickyProxyIdx >= 0) {
+    order.push(_stickyProxyIdx);
+    for (var i = 0; i < CORS_PROXIES.length; i++) {
+      if (i !== _stickyProxyIdx) order.push(i);
+    }
+  } else {
+    for (var i = 0; i < CORS_PROXIES.length; i++) order.push(i);
+  }
+
+  for (var oi = 0; oi < order.length; oi++) {
+    var p = order[oi];
     var proxy = CORS_PROXIES[p];
     try {
       var proxyUrl = proxy.build(url);
-      var res = await fetch(proxyUrl, { signal: AbortSignal.timeout(20000) });
+      var timeout = (oi === 0 && _stickyProxyIdx >= 0) ? 15000 : 10000;
+      var res = await fetch(proxyUrl, { signal: AbortSignal.timeout(timeout) });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       var html = await res.text();
       if (html && html.length > 100) {
+        _stickyProxyIdx = p;
         _activeProxy = proxy.name;
         return html;
       }
     } catch (e) {
       console.warn('[Fetch/' + proxy.name + '] Failed: ' + url + ' - ' + e.message);
-      addLog('  プロキシ ' + proxy.name + ' 失敗、次を試行...', 'info');
+      if (oi === 0 && _stickyProxyIdx >= 0) {
+        addLog('  プロキシ ' + proxy.name + ' 失敗、代替を試行...', 'info');
+        _stickyProxyIdx = -1; // リセット
+      }
     }
   }
   console.warn('[Fetch] All proxies failed for: ' + url);
