@@ -1,5 +1,5 @@
 // ========================================
-// 不動産市場把握AI v2.9 - Frontend Only
+// 不動産市場把握AI v3.0 - Frontend Only
 // ブラウザから直接Gemini API + e-Stat APIを呼び出す
 // ========================================
 
@@ -424,7 +424,7 @@ async function crawlSite(url) {
       var subText = extractTextFromHtml(subHtml);
       if (subText.length > 50) {
         var pageName = subLink.text || subLink.path;
-        var summary = subText.replace(/\s+/g, ' ').slice(0, 150);
+        var summary = extractPageSummary(subText);
         allTexts.push('【' + pageName + '】\n' + subText.slice(0, 2000));
         _crawledPages.push({ name: pageName, url: subLink.url, chars: subText.length, status: 'OK', summary: summary });
       }
@@ -749,9 +749,9 @@ function buildMarketPromptForArea(analysis, estatPop, estatHousing, area) {
     '    "yoy_change": "+0.0%"\n' +
     '  },\n' +
     '  "home_prices": {\n' +
-    '    "avg_price": 0,\n' +
+    '    "avg_price": 0,  // 万円単位で記入（例: 3500 → 3500万円。48000000のような円単位は不可）\n' +
     '    "price_range": "0〜0万円",\n' +
-    '    "required_income": 0\n' +
+    '    "required_income": 0  // 万円単位で記入（例: 600 → 600万円）\n' +
     '  },\n' +
     '  "competition": {\n' +
     '    "total_companies": 0,\n' +
@@ -767,20 +767,48 @@ function buildMarketPromptForArea(analysis, estatPop, estatHousing, area) {
     '}';
 }
 
-// 住所から都道府県・市区町村を抽出
+// 住所から都道府県・市区町村を抽出（最小区分まで）
 function extractAreaFromAddress(address) {
   if (!address) return null;
   var prefMatch = address.match(/(北海道|東京都|大阪府|京都府|.{2,3}県)/);
   if (!prefMatch) return null;
   var pref = prefMatch[1];
-  // 市区町村を抽出（政令指定都市の区まで取得）
   var rest = address.slice(address.indexOf(pref) + pref.length);
-  var cityMatch = rest.match(/^(.+?[市郡])(.+?[区町村])?/);
   var city = '';
-  if (cityMatch) {
-    city = cityMatch[1] + (cityMatch[2] || '');
+  if (pref === '東京都') {
+    // 東京都の特別区（23区）を直接取得
+    var wardMatch = rest.match(/^(.+?区)/);
+    city = wardMatch ? wardMatch[1] : '';
+  } else {
+    // 政令指定都市: 市+区まで取得、郡: 郡+町村まで取得
+    var cityMatch = rest.match(/^(.+?市)(.+?区)?/) || rest.match(/^(.+?郡)(.+?[町村])/);
+    if (cityMatch) {
+      city = cityMatch[1] + (cityMatch[2] || '');
+    } else {
+      // 区のみ（大阪市等の区）
+      var kuMatch = rest.match(/^(.+?区)/);
+      city = kuMatch ? kuMatch[1] : '';
+    }
   }
   return { prefecture: pref, city: city, label: pref + ' ' + city };
+}
+
+// ページテキストから意味のある要約を抽出（ナビゲーションを除外）
+function extractPageSummary(text) {
+  // 改行で分割して意味のある行を探す
+  var lines = text.split(/[\n\r]+/);
+  var meaningful = [];
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i].replace(/\s+/g, ' ').trim();
+    // 短すぎる行やナビ的な行をスキップ
+    if (line.length < 15) continue;
+    // よくあるナビゲーション文言をスキップ
+    if (/^(来場予約|カタログ請求|個人のお客様|法人のお客様|オーナー様|施工実例|イベント情報|企業情報|採用情報|トップ|HOME|MENU|会社概要|お問い合わせ|お知らせ|ニュース|プライバシー|サイトマップ|English|Copyright)/.test(line)) continue;
+    if (/^(家を建てる|土地を探す|分譲住宅を探す|リフォーム|エクステリア|住まいの)/.test(line)) continue;
+    meaningful.push(line);
+    if (meaningful.length >= 2) break;
+  }
+  return meaningful.join(' ').slice(0, 200) || text.replace(/\s+/g, ' ').slice(0, 100);
 }
 
 // ---- JSON Parser ----
@@ -961,11 +989,16 @@ function renderResults(data) {
       // ⑤ 新築住宅相場
       if (m.home_prices) {
         var hp = m.home_prices;
+        // 万円単位サニタイズ（Geminiが円単位で返すことがあるため）
+        var avgP = hp.avg_price || 0;
+        if (avgP > 50000) avgP = Math.round(avgP / 10000); // 円→万円変換
+        var reqInc = hp.required_income || 0;
+        if (reqInc > 50000) reqInc = Math.round(reqInc / 10000);
         html += '<div style="margin-bottom:16px;"><div style="font-size:14px; font-weight:700; margin-bottom:8px;">🏠 ⑤ 新築住宅相場</div>' +
           '<table class="data-table">' +
-          '<tr><th>新築一戸建て 平均</th><td><span class="highlight">' + (hp.avg_price ? '¥' + formatNumber(hp.avg_price) + '万円' : '—') + '</span></td></tr>' +
+          '<tr><th>新築一戸建て 平均</th><td><span class="highlight">' + (avgP ? '¥' + formatNumber(avgP) + '万円' : '—') + '</span></td></tr>' +
           '<tr><th>価格帯</th><td>' + (hp.price_range || '—') + '</td></tr>' +
-          '<tr><th>目安年収</th><td>' + (hp.required_income ? '¥' + formatNumber(hp.required_income) + '万円' : '—') + '</td></tr>' +
+          '<tr><th>目安年収</th><td>' + (reqInc ? '¥' + formatNumber(reqInc) + '万円' : '—') + '</td></tr>' +
           '</table></div>';
       }
 
