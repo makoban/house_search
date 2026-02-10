@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>不動産市場把握AI - 商圏分析レポート自動生成</title>
+  <meta name="description" content="企業URLを入力するだけで、AIが事業分析・商圏の市場データ・潜在顧客数を自動レポート。工務店・不動産向け。">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" defer></script>
+</head>
+<body>
+
+  <!-- Background Effects -->
+  <div class="bg-grid"></div>
+  <div class="bg-blob bg-blob--1"></div>
+  <div class="bg-blob bg-blob--2"></div>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="container header__inner">
+      <div class="header__logo">
+        <div class="header__logo-icon">🏠</div>
+        <span class="header__logo-text">不動産市場把握AI</span>
+      </div>
+      <div class="header__badge">v1.0 Beta</div>
+    </div>
+  </header>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="container">
+      <div class="hero__content">
+        <div class="hero__badge">
+          <span class="hero__badge-dot"></span>
+          AI-Powered Market Analysis
+        </div>
+        <h1 class="hero__title">不動産市場把握<span>AI</span></h1>
+        <p class="hero__subtitle">
+          企業のURLを入力するだけ。<br>
+          AIがWebサイトを解析し、商圏の市場データと潜在顧客を自動レポートします。
+        </p>
+
+        <!-- Search Card -->
+        <div class="search-card">
+          <label class="search__label" for="url-input">分析したい企業のHPアドレス</label>
+          <div class="search__input-wrap">
+            <input
+              type="url"
+              id="url-input"
+              class="search__input"
+              placeholder="https://example-koumuten.co.jp"
+              autocomplete="url"
+            >
+            <button id="analyze-btn" class="search__btn" onclick="startAnalysis()">
+              <span class="btn-text">🔍 分析開始</span>
+              <span class="spinner"></span>
+            </button>
+          </div>
+          <p class="search__hint">💡 企業のトップページURLを入力してください。リンク先を含め全ページを解析します。</p>
+          <div id="error-msg" class="error-msg"></div>
+        </div>
+
+        <!-- Features -->
+        <div class="features">
+          <div class="feature-item">
+            <div class="feature-item__icon">🌐</div>
+            <div class="feature-item__title">HP全ページ解析</div>
+            <div class="feature-item__desc">リンク先も含めAIが事業内容を分析</div>
+          </div>
+          <div class="feature-item">
+            <div class="feature-item__icon">📊</div>
+            <div class="feature-item__title">商圏データ</div>
+            <div class="feature-item__desc">人口・相場・競合を自動取得</div>
+          </div>
+          <div class="feature-item">
+            <div class="feature-item__icon">📄</div>
+            <div class="feature-item__title">PDFレポート</div>
+            <div class="feature-item__desc">分析結果をワンクリック出力</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- OL Character (SVG) -->
+      <div class="hero__character-wrap">
+        <svg class="hero__character" viewBox="0 0 300 500" xmlns="http://www.w3.org/2000/svg">
+          <!-- Hair -->
+          <ellipse cx="150" cy="100" rx="65" ry="72" fill="#2d1b0e"/>
+          <ellipse cx="150" cy="85" rx="55" ry="58" fill="#3d2b1e"/>
+          <!-- Face -->
+          <ellipse cx="150" cy="105" rx="45" ry="50" fill="#fce4c8"/>
+          <!-- Eyes -->
+          <ellipse cx="133" cy="100" rx="6" ry="7" fill="#2d1b0e"/>
+          <ellipse cx="167" cy="100" rx="6" ry="7" fill="#2d1b0e"/>
+          <ellipse cx="134" cy="98" rx="2" ry="2.5" fill="#fff"/>
+          <ellipse cx="168" cy="98" rx="2" ry="2.5" fill="#fff"/>
+          <!-- Eyebrows -->
+          <path d="M123 88 Q133 84 143 88" stroke="#3d2b1e" fill="none" stroke-width="2" stroke-linecap="round"/>
+          <path d="M157 88 Q167 84 177 88" stroke="#3d2b1e" fill="none" stroke-width="2" stroke-linecap="round"/>
+          <!-- Nose -->
+          <path d="M148 110 Q150 115 152 110" stroke="#deb896" fill="none" stroke-width="1.5"/>
+          <!-- Mouth (smile) -->
+          <path d="M138 122 Q150 132 162 122" stroke="#e07070" fill="none" stroke-width="2.5" stroke-linecap="round"/>
+          <!-- Blush -->
+          <ellipse cx="125" cy="115" rx="10" ry="6" fill="#ffb8b8" opacity="0.4"/>
+          <ellipse cx="175" cy="115" rx="10" ry="6" fill="#ffb8b8" opacity="0.4"/>
+          <!-- Neck -->
+          <rect x="140" y="150" width="20" height="20" fill="#fce4c8" rx="4"/>
+          <!-- Body / Blazer -->
+          <path d="M95 170 Q95 165 115 162 L140 160 L160 160 L185 162 Q205 165 205 170 L210 290 L90 290 Z" fill="#1e3a5f"/>
+          <!-- Blazer lapels -->
+          <path d="M140 160 L135 200 L150 192 Z" fill="#16324d"/>
+          <path d="M160 160 L165 200 L150 192 Z" fill="#16324d"/>
+          <!-- White blouse -->
+          <path d="M138 160 L143 195 L150 190 L157 195 L162 160 Z" fill="#fff"/>
+          <!-- Button -->
+          <circle cx="150" cy="210" r="3" fill="#c0a060"/>
+          <circle cx="150" cy="240" r="3" fill="#c0a060"/>
+          <!-- Skirt -->
+          <path d="M90 290 Q85 380 100 395 L200 395 Q215 380 210 290 Z" fill="#1a1a2e"/>
+          <!-- Left arm -->
+          <path d="M95 175 L70 260 L75 265 L105 200 Z" fill="#1e3a5f"/>
+          <!-- Right arm (holding tablet) -->
+          <path d="M205 175 L230 250 L225 260 L195 200 Z" fill="#1e3a5f"/>
+          <!-- Tablet -->
+          <rect x="215" y="240" width="45" height="60" rx="5" fill="#334155" stroke="#64748b" stroke-width="1.5"/>
+          <rect x="220" y="246" width="35" height="46" rx="2" fill="#3b82f6" opacity="0.3"/>
+          <!-- Chart bars on tablet -->
+          <rect x="224" y="272" width="6" height="16" rx="1" fill="#3b82f6" opacity="0.7"/>
+          <rect x="233" y="264" width="6" height="24" rx="1" fill="#3b82f6" opacity="0.9"/>
+          <rect x="242" y="258" width="6" height="30" rx="1" fill="#3b82f6"/>
+          <!-- Legs -->
+          <line x1="130" y1="395" x2="125" y2="460" stroke="#fce4c8" stroke-width="14" stroke-linecap="round"/>
+          <line x1="170" y1="395" x2="175" y2="460" stroke="#fce4c8" stroke-width="14" stroke-linecap="round"/>
+          <!-- Shoes -->
+          <ellipse cx="120" cy="468" rx="16" ry="8" fill="#1a1a2e"/>
+          <ellipse cx="180" cy="468" rx="16" ry="8" fill="#1a1a2e"/>
+          <!-- Hair bangs -->
+          <path d="M100 80 Q110 55 140 60 Q135 80 130 90 Z" fill="#3d2b1e"/>
+          <path d="M200 80 Q190 55 160 60 Q165 80 170 90 Z" fill="#3d2b1e"/>
+          <path d="M130 60 Q150 50 170 60 Q165 72 150 74 Q135 72 130 60 Z" fill="#3d2b1e"/>
+          <!-- Earrings -->
+          <circle cx="105" cy="112" r="3" fill="#c0a060"/>
+          <circle cx="195" cy="112" r="3" fill="#c0a060"/>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- Progress -->
+  <section id="progress-section" class="progress-section">
+    <div class="container">
+      <div class="progress__steps">
+        <div class="progress__step" id="step-crawl">
+          <div class="progress__step-icon">🌐</div>
+          <div class="progress__step-text">Webサイトをクロール中...</div>
+        </div>
+        <div class="progress__step" id="step-analyze">
+          <div class="progress__step-icon">🤖</div>
+          <div class="progress__step-text">AIで事業内容を分析中...</div>
+        </div>
+        <div class="progress__step" id="step-location">
+          <div class="progress__step-icon">📍</div>
+          <div class="progress__step-text">所在地を特定中...</div>
+        </div>
+        <div class="progress__step" id="step-market">
+          <div class="progress__step-icon">📊</div>
+          <div class="progress__step-text">商圏の市場データを取得中...</div>
+        </div>
+        <div class="progress__step" id="step-report">
+          <div class="progress__step-icon">📄</div>
+          <div class="progress__step-text">レポートを作成中...</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Results -->
+  <section id="results-section" class="results-section">
+    <div class="container">
+      <div class="results__header">
+        <h2 class="results__title">📋 分析レポート</h2>
+        <div class="results__actions">
+          <button class="btn-pdf" onclick="exportPDF()">📄 PDF出力</button>
+          <button class="btn-rerun" onclick="resetAll()">🔄 再分析</button>
+        </div>
+      </div>
+      <div id="results-content">
+        <!-- Dynamically filled by app.js -->
+      </div>
+    </div>
+  </section>
+
+  <!-- PDF Content (hidden, for rendering) -->
+  <div id="pdf-content"></div>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <p class="footer__text">© 2026 不動産市場把握AI — Powered by OpenAI & Open Data</p>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
