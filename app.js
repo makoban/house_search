@@ -1,5 +1,5 @@
 // ========================================
-// 不動産市場把握AI v3.4 - Frontend Only
+// 不動産市場把握AI v3.5 - Frontend Only
 // ブラウザから直接Gemini API + e-Stat APIを呼び出す
 // ========================================
 
@@ -1136,6 +1136,179 @@ function switchAreaTab(idx) {
       btn.style.borderColor = 'rgba(99,102,241,0.15)';
     }
   });
+}
+
+// ---- Excel Export ----
+function exportExcel() {
+  if (!analysisData) return;
+  var wb = XLSX.utils.book_new();
+  var company = analysisData.company || {};
+  var markets = analysisData.markets || [];
+
+  // ===== Sheet 1: 会社概要 =====
+  var s1Data = [
+    ['不動産市場把握AI - 分析レポート'],
+    ['出力日: ' + new Date().toLocaleDateString('ja-JP')],
+    [],
+    ['■ 企業情報'],
+    ['企業名', company.name || '—'],
+    ['本社所在地', company.address || '—'],
+    ['事業内容', company.business_type || '—'],
+    ['主力サービス', company.main_services || '—'],
+    ['不動産事業', company.is_real_estate ? '該当' : '非該当'],
+    ['対象エリア', company.target_area || '—'],
+    ['従業員規模', company.employee_scale || '—'],
+    [],
+    ['■ 強み・特徴'],
+    [company.strengths || '—'],
+    [],
+    ['■ 改善余地'],
+    [company.weaknesses || '—'],
+  ];
+
+  // 事業所一覧
+  if (company.offices && company.offices.length > 0) {
+    s1Data.push([]);
+    s1Data.push(['■ 事業所一覧 (' + company.offices.length + '拠点)']);
+    s1Data.push(['拠点', '郵便番号', '住所', '電話番号']);
+    company.offices.forEach(function(o, i) {
+      var label = o.is_hq ? '本社' : '拠点' + i;
+      s1Data.push([label, o.zip || '', o.address || '', o.tel || '']);
+    });
+  }
+
+  var ws1 = XLSX.utils.aoa_to_sheet(s1Data);
+  ws1['!cols'] = [{ wch: 18 }, { wch: 50 }, { wch: 20 }, { wch: 18 }];
+  // タイトル行をマージ
+  ws1['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 3 } }];
+  XLSX.utils.book_append_sheet(wb, ws1, '会社概要');
+
+  // ===== Sheet 2: 巡回ページ =====
+  var crawledPages = (_crawlDebugInfo && _crawlDebugInfo.crawledPages) || [];
+  if (crawledPages.length > 0) {
+    var s2Data = [['No.', 'ページ名', '文字数', 'URL', '要約']];
+    crawledPages.forEach(function(p, i) {
+      s2Data.push([i + 1, p.name || '', p.chars || 0, p.url || '', p.summary || '']);
+    });
+    var ws2 = XLSX.utils.aoa_to_sheet(s2Data);
+    ws2['!cols'] = [{ wch: 5 }, { wch: 30 }, { wch: 8 }, { wch: 50 }, { wch: 60 }];
+    XLSX.utils.book_append_sheet(wb, ws2, '巡回ページ');
+  }
+
+  // ===== Sheet 3+: エリア別市場データ =====
+  if (markets.length > 0) {
+    markets.forEach(function(mkt, idx) {
+      var m = mkt.data || {};
+      var areaLabel = m.area_name || (mkt.area && mkt.area.label) || 'エリア' + (idx + 1);
+      var sheetName = areaLabel.slice(0, 28); // Excelシート名は31文字制限
+      var rows = [];
+
+      rows.push(['エリア別市場データ: ' + areaLabel]);
+      rows.push([]);
+
+      // ① 人口
+      if (m.population) {
+        var pop = m.population;
+        rows.push(['① 人口・世帯データ', '', 'データソース:', pop.source || '推計']);
+        rows.push(['総人口', pop.total_population || 0]);
+        rows.push(['世帯数', pop.households || 0]);
+        rows.push(['30〜45歳比率', (pop.age_30_45_pct || 0) + '%']);
+        rows.push(['65歳以上比率', (pop.elderly_pct || 0) + '%']);
+        rows.push([]);
+      }
+
+      // ② 建築着工
+      if (m.construction) {
+        var con = m.construction;
+        rows.push(['② 建築着工統計']);
+        rows.push(['持家 着工戸数', (con.owner_occupied || 0) + ' 戸/年']);
+        rows.push(['全体 着工戸数', (con.total || 0) + ' 戸/年']);
+        rows.push(['前年比', con.yoy_change || '—']);
+        rows.push(['年度', con.year || '—']);
+        rows.push(['データソース', con.source || '推計']);
+        rows.push([]);
+      }
+
+      // ③ 持ち家率・空き家率
+      if (m.housing) {
+        var hou = m.housing;
+        rows.push(['③ 持ち家率・空き家率']);
+        rows.push(['持ち家率', (hou.ownership_rate || 0) + '%']);
+        rows.push(['空き家率', (hou.vacancy_rate || 0) + '%']);
+        rows.push(['賃貸空室率', (hou.rental_vacancy || 0) + '%']);
+        rows.push([]);
+      }
+
+      // ④ 土地相場
+      if (m.land_price) {
+        var lp = m.land_price;
+        rows.push(['④ 土地相場']);
+        rows.push(['住宅地 平均坪単価', lp.residential_tsubo ? '¥' + formatNumber(lp.residential_tsubo) : '—']);
+        rows.push(['住宅地 平均㎡単価', lp.residential_sqm ? '¥' + formatNumber(lp.residential_sqm) + '/㎡' : '—']);
+        rows.push(['商業地 平均㎡単価', lp.commercial_sqm ? '¥' + formatNumber(lp.commercial_sqm) + '/㎡' : '—']);
+        rows.push(['前年比', lp.yoy_change || '—']);
+        rows.push([]);
+      }
+
+      // ⑤ 新築住宅相場
+      if (m.home_prices) {
+        var hp = m.home_prices;
+        var avgP = hp.avg_price || 0;
+        if (avgP > 50000) avgP = Math.round(avgP / 10000);
+        var reqInc = hp.required_income || 0;
+        if (reqInc > 50000) reqInc = Math.round(reqInc / 10000);
+        rows.push(['⑤ 新築住宅相場']);
+        rows.push(['新築一戸建て平均', avgP ? avgP + '万円' : '—']);
+        rows.push(['価格帯', hp.price_range || '—']);
+        rows.push(['目安年収', reqInc ? reqInc + '万円' : '—']);
+        rows.push([]);
+      }
+
+      // ⑥ 競合分析
+      if (m.competition) {
+        var comp = m.competition;
+        rows.push(['⑥ 競合分析']);
+        rows.push(['工務店・ビルダー数', (comp.total_companies || 0) + '社']);
+        rows.push(['新築分譲業者数', (comp.new_build_companies || 0) + '社']);
+        rows.push([]);
+      }
+
+      // 潜在顧客数
+      if (m.potential) {
+        var pot = m.potential;
+        rows.push(['潜在顧客数の試算']);
+        rows.push(['30〜45歳 世帯数', formatNumber(pot.target_households) + ' 世帯']);
+        rows.push(['賃貸世帯数', formatNumber(pot.rental_households) + ' 世帯']);
+        rows.push(['年間持ち家転換推定', formatNumber(pot.annual_converts) + ' 世帯/年']);
+        rows.push(['1社あたり年間獲得', (pot.per_company || '—') + ' 棟']);
+        if (pot.ai_insight) {
+          rows.push([]);
+          rows.push(['AIからの提言']);
+          rows.push([pot.ai_insight]);
+        }
+      }
+
+      var ws = XLSX.utils.aoa_to_sheet(rows);
+      ws['!cols'] = [{ wch: 22 }, { wch: 30 }, { wch: 15 }, { wch: 20 }];
+      ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 3 } }];
+      XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    });
+  } else if (analysisData.market) {
+    // 旧式単一market
+    var m = analysisData.market;
+    var rows = [['市場データ']];
+    if (m.population) {
+      rows.push(['総人口', m.population.total_population || 0]);
+      rows.push(['世帯数', m.population.households || 0]);
+    }
+    var ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [{ wch: 22 }, { wch: 30 }];
+    XLSX.utils.book_append_sheet(wb, ws, '市場データ');
+  }
+
+  // ファイル名生成 & ダウンロード
+  var fileName = '不動産市場分析_' + (company.name || 'report') + '_' + new Date().toISOString().slice(0, 10) + '.xlsx';
+  XLSX.writeFile(wb, fileName);
 }
 
 // ---- PDF Export ----

@@ -7,6 +7,7 @@
   <meta name="description" content="企業URLを入力するだけで、AIが事業分析・商圏の市場データ・潜在顧客数を自動レポート。工務店・不動産向け。">
   <link rel="stylesheet" href="style.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" defer></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js" defer></script>
 </head>
 <body>
 
@@ -23,7 +24,7 @@
         <span class="header__logo-text">不動産市場把握AI</span>
       </div>
       <div class="header__actions">
-        <div class="header__badge">v3.4</div>
+        <div class="header__badge">v3.5</div>
         <button id="settings-btn" class="btn-settings" aria-label="設定">🔑 API設定</button>
       </div>
     </div>
@@ -179,6 +180,7 @@
       <div class="results__header">
         <h2 class="results__title">📋 分析レポート</h2>
         <div class="results__actions">
+          <button class="btn-pdf" onclick="exportExcel()" style="background:linear-gradient(135deg,#10b981,#059669);">📊 Excel出力</button>
           <button class="btn-pdf" onclick="exportPDF()">📄 PDF出力</button>
           <button class="btn-rerun" onclick="resetAll()">🔄 再分析</button>
         </div>
@@ -195,7 +197,7 @@
   <!-- Footer -->
   <footer class="footer">
     <div class="container">
-      <p class="footer__text">© 2026 不動産市場把握AI v3.4 — Powered by Gemini 2.0 Flash + e-Stat</p>
+      <p class="footer__text">© 2026 不動産市場把握AI v3.5 — Powered by Gemini 2.0 Flash + e-Stat</p>
     </div>
   </footer>
 
