@@ -296,9 +296,11 @@ async function fetchSinglePage(url) {
 function extractTextFromHtml(html) {
   var parser = new DOMParser();
   var doc = parser.parseFromString(html, 'text/html');
-  doc.querySelectorAll('script, style, nav, noscript, iframe, svg').forEach(function(el) { el.remove(); });
-  var text = (doc.body && doc.body.innerText) || (doc.body && doc.body.textContent) || '';
-  return text.replace(/\s+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+  // script/styleのみ除外（nav/footer/headerは住所等重要情報を含む場合があるため残す）
+  doc.querySelectorAll('script, style, noscript, iframe, svg').forEach(function(el) { el.remove(); });
+  var text = (doc.body && doc.body.textContent) || '';
+  // 連続空白と改行を整理
+  return text.replace(/[ \t]+/g, ' ').replace(/\n\s*\n/g, '\n').trim();
 }
 
 function extractLinks(html, baseUrl) {
