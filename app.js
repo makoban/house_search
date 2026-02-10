@@ -1,5 +1,5 @@
 // ========================================
-// 不動産市場把握AI v3.2 - Frontend Only
+// 不動産市場把握AI v3.3 - Frontend Only
 // ブラウザから直接Gemini API + e-Stat APIを呼び出す
 // ========================================
 
@@ -969,7 +969,7 @@ function renderResults(data) {
       '<div class="result-card__icon">📊</div>' +
       '<div><div class="result-card__title">エリア別市場データ</div>' +
       '<div class="result-card__subtitle">' + markets.length + 'エリアの①〜⑥データ</div></div></div>' +
-      '<div style="display:flex; flex-wrap:wrap; gap:6px; padding:12px 20px; border-bottom:1px solid rgba(99,102,241,0.1);">';
+      '<div class="area-tab-btns" style="display:flex; flex-wrap:wrap; gap:6px; padding:12px 20px; border-bottom:1px solid rgba(99,102,241,0.1);">';
 
     markets.forEach(function(mkt, idx) {
       var isHQ = mkt.area && mkt.area.isHQ;
@@ -988,7 +988,9 @@ function renderResults(data) {
       var m = mkt.data || {};
       var areaLabel = m.area_name || (mkt.area && mkt.area.label) || 'エリア';
       var display = idx === 0 ? 'block' : 'none';
-      html += '<div class="area-tab-content" id="area-tab-' + idx + '" style="display:' + display + '; padding:16px 20px;">';
+      var isHQ = mkt.area && mkt.area.isHQ;
+      var fullLabel = (isHQ ? '🏢 ' : '📍 ') + areaLabel;
+      html += '<div class="area-tab-content" id="area-tab-' + idx + '" data-area-label="' + escapeHtml(fullLabel) + '" style="display:' + display + '; padding:16px 20px;">';
 
       // ① 人口
       if (m.population) {
@@ -1131,16 +1133,86 @@ async function exportPDF() {
   var element = document.getElementById('results-content');
   if (!element) return;
 
+  // --- PDF前の準備: 全エリアタブを展開 ---
+  var tabContents = element.querySelectorAll('.area-tab-content');
+  var tabBtnBar = element.querySelector('.area-tab-btns');
+  var originalStates = [];
+
+  // 全タブ内容を表示 + エリア見出しを追加
+  tabContents.forEach(function(el, idx) {
+    originalStates.push(el.style.display);
+    el.style.display = 'block';
+    // エリアタイトルをPDF用に挿入
+    var areaLabel = el.getAttribute('data-area-label');
+    if (areaLabel) {
+      var titleDiv = document.createElement('div');
+      titleDiv.className = 'pdf-area-title';
+      titleDiv.style.cssText = 'font-size:13px; font-weight:700; color:#818cf8; padding:10px 0 6px; margin-top:8px; border-top:2px solid rgba(99,102,241,0.3); page-break-before:always;';
+      if (idx === 0) titleDiv.style.pageBreakBefore = 'auto';
+      titleDiv.textContent = '📊 ' + areaLabel;
+      el.insertBefore(titleDiv, el.firstChild);
+    }
+  });
+
+  // タブボタンバーを非表示
+  if (tabBtnBar) tabBtnBar.style.display = 'none';
+
+  // --- PDF用CSSを注入 ---
+  var pdfStyle = document.createElement('style');
+  pdfStyle.id = 'pdf-export-style';
+  pdfStyle.textContent =
+    '#results-content { font-size: 10px !important; }' +
+    '#results-content .result-card { page-break-inside: avoid; margin-bottom: 8px !important; }' +
+    '#results-content .result-card__title { font-size: 13px !important; }' +
+    '#results-content .result-card__subtitle { font-size: 10px !important; }' +
+    '#results-content .stat-box__value { font-size: 18px !important; }' +
+    '#results-content .stat-box__label { font-size: 9px !important; }' +
+    '#results-content .stat-box { padding: 8px !important; }' +
+    '#results-content .stat-grid { gap: 6px !important; }' +
+    '#results-content .data-table th, #results-content .data-table td { font-size: 10px !important; padding: 4px 8px !important; }' +
+    '#results-content .summary-box { font-size: 10px !important; padding: 8px 12px !important; }' +
+    '#results-content .summary-box__title { font-size: 11px !important; }' +
+    '#results-content .summary-box__text { font-size: 10px !important; }' +
+    '#results-content .highlight { font-size: 14px !important; }' +
+    '#results-content .highlight--amber { font-size: 14px !important; }' +
+    '#results-content .tag { font-size: 9px !important; padding: 2px 8px !important; }' +
+    // エリアデータ内の各セクションをページまたぎ防止
+    '#results-content .area-tab-content > div { page-break-inside: avoid; }' +
+    // 巡回ページ一覧の各アイテム
+    '#results-content .page-list-item { page-break-inside: avoid; font-size: 10px !important; }' +
+    // 事業所一覧
+    '#results-content .office-list > div { page-break-inside: avoid; }';
+  document.head.appendChild(pdfStyle);
+
   var opt = {
-    margin: [10, 10, 10, 10],
+    margin: [8, 8, 8, 8],
     filename: '不動産市場分析_' + ((analysisData && analysisData.company && analysisData.company.name) || 'report') + '_' + new Date().toISOString().slice(0,10) + '.pdf',
-    image: { type: 'jpeg', quality: 0.95 },
-    html2canvas: { scale: 2, useCORS: true, backgroundColor: '#111827' },
-    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    image: { type: 'jpeg', quality: 0.92 },
+    html2canvas: { scale: 1.5, useCORS: true, backgroundColor: '#111827' },
+    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+    pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
   };
 
   element.style.color = '#e2e8f0';
-  await html2pdf().set(opt).from(element).save();
+
+  try {
+    await html2pdf().set(opt).from(element).save();
+  } finally {
+    // --- PDF後: 元の状態に戻す ---
+    // PDF用CSSを除去
+    var styleEl = document.getElementById('pdf-export-style');
+    if (styleEl) styleEl.remove();
+
+    // タブボタンバーを復元
+    if (tabBtnBar) tabBtnBar.style.display = '';
+
+    // タブの表示状態を復元 + PDF用タイトルを除去
+    tabContents.forEach(function(el, idx) {
+      el.style.display = originalStates[idx];
+      var pdfTitle = el.querySelector('.pdf-area-title');
+      if (pdfTitle) pdfTitle.remove();
+    });
+  }
 }
 
 // ---- Reset ----
