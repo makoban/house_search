@@ -6,7 +6,8 @@
 var GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 var CORS_PROXY = 'https://api.allorigins.win/raw?url=';
 var ESTAT_API_BASE = 'https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData';
-var _crawledAddresses = [];  // crawlSiteで抽出した住所をグローバルに保持
+var _crawledAddresses = [];
+var _crawlDebugInfo = { pages: [], scoredLinks: [], addresses: [] };
 
 // ---- Prefecture Codes ----
 var PREFECTURE_CODES = {
@@ -305,29 +306,32 @@ function extractTextFromHtml(html) {
 }
 
 function extractLinks(html, baseUrl) {
-  var parser = new DOMParser();
-  var doc = parser.parseFromString(html, 'text/html');
   var links = [];
   var seen = {};
   var base;
   try { base = new URL(baseUrl); } catch(e) { return []; }
 
-  doc.querySelectorAll('a[href]').forEach(function(a) {
+  // 正規表現でHTMLからaタグのhrefを直接抽出（DOMParserを使わない）
+  var linkRegex = /<a\s[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  var m;
+
+  while ((m = linkRegex.exec(html)) !== null) {
     try {
-      var href = a.getAttribute('href');
-      if (!href || href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:')) return;
+      var href = m[1];
+      if (!href || href.charAt(0) === '#' || href.indexOf('mailto:') === 0 || href.indexOf('tel:') === 0) continue;
       var resolved = new URL(href, baseUrl);
       // 同じドメインのみ
-      if (resolved.hostname !== base.hostname) return;
+      if (resolved.hostname !== base.hostname) continue;
       var path = resolved.pathname.toLowerCase();
       // 画像・PDF・外部ファイルを除外
-      if (/\.(jpg|jpeg|png|gif|svg|pdf|zip|doc|mp4|mp3)$/i.test(path)) return;
+      if (/\.(jpg|jpeg|png|gif|svg|pdf|zip|doc|mp4|mp3)$/i.test(path)) continue;
       var key = resolved.origin + resolved.pathname;
-      if (seen[key]) return;
+      if (seen[key]) continue;
       seen[key] = true;
-      links.push({ url: key, path: path, text: (a.textContent || '').trim() });
+      var linkText = m[2].replace(/<[^>]+>/g, '').trim();
+      links.push({ url: key, path: path, text: linkText.slice(0, 50) });
     } catch(e) { /* ignore invalid URLs */ }
-  });
+  }
   return links;
 }
 
@@ -365,6 +369,9 @@ async function crawlSite(url) {
   var topText = extractTextFromHtml(topHtml);
   addLog('トップページ取得完了 (' + topText.length + '文字)', 'success');
 
+  // デバッグ情報初期化
+  _crawlDebugInfo = { pages: [{ url: url, status: 'OK', size: topHtml.length }], scoredLinks: [], addresses: [] };
+
   // 全HTMLソースから住所を抽出（HTMLのままでマッチ）
   var allHtmlSources = [topHtml];
 
@@ -389,6 +396,9 @@ async function crawlSite(url) {
 
   if (scoredLinks.length > 0) {
     addLog('重要サブページ候補: ' + scoredLinks.slice(0, 5).map(function(l) { return l.text + '(' + l.score + '点)'; }).join(', '));
+    _crawlDebugInfo.scoredLinks = scoredLinks.slice(0, 10).map(function(l) { return { text: l.text, url: l.url, score: l.score }; });
+  } else {
+    addLog('重要サブページ候補: なし（スコア0以上のリンクが見つかりません）', 'info');
   }
 
   for (var i = 0; i < maxSubPages; i++) {
@@ -403,8 +413,10 @@ async function crawlSite(url) {
         allTexts.push('【' + (subLink.text || subLink.path) + '】\n' + subText.slice(0, 3000));
         addLog('  → 取得成功 (' + subText.length + '文字)', 'success');
       }
+      _crawlDebugInfo.pages.push({ url: subLink.url, status: 'OK', size: subHtml.length, text: subLink.text });
     } else {
       addLog('  → 取得失敗', 'info');
+      _crawlDebugInfo.pages.push({ url: subLink.url, status: 'FAILED', size: 0, text: subLink.text });
     }
   }
 
@@ -884,6 +896,53 @@ function renderResults(data) {
       html += '</div></div>';
     }
   }
+
+  // デバッグ情報セクション
+  var dbg = _crawlDebugInfo || {};
+  html += '<div class="result-card" style="border: 1px solid rgba(99,102,241,0.2);">' +
+    '<div class="result-card__header">' +
+    '<div class="result-card__icon">🔍</div>' +
+    '<div><div class="result-card__title">クローリング詳細</div>' +
+    '<div class="result-card__subtitle">デバッグ情報</div></div></div>' +
+    '<div class="result-card__body">';
+
+  // 取得ページ一覧
+  html += '<div style="font-size:13px; font-weight:700; margin-bottom:6px;">📄 取得ページ一覧</div>';
+  if (dbg.pages && dbg.pages.length > 0) {
+    dbg.pages.forEach(function(p, i) {
+      var statusIcon = p.status === 'OK' ? '✅' : '❌';
+      html += '<div style="font-size:11px; margin-bottom:3px; color:var(--text-secondary);">' +
+        statusIcon + ' [' + (i+1) + '] ' + escapeHtml(p.text || 'トップ') + ' <span style="color:var(--accent-blue);">' + escapeHtml(p.url).slice(0, 60) + '</span> (' + p.size + 'B)</div>';
+    });
+  } else {
+    html += '<div style="font-size:11px; color:#f87171;">ページ取得なし</div>';
+  }
+
+  // スコア付きリンク一覧
+  html += '<div style="font-size:13px; font-weight:700; margin-top:12px; margin-bottom:6px;">🔗 検出リンク（スコア順）</div>';
+  if (dbg.scoredLinks && dbg.scoredLinks.length > 0) {
+    dbg.scoredLinks.forEach(function(l, i) {
+      html += '<div style="font-size:11px; margin-bottom:2px; color:var(--text-secondary);">' +
+        '[' + l.score + '点] ' + escapeHtml(l.text) + ' → ' + escapeHtml(l.url).slice(0, 60) + '</div>';
+    });
+  } else {
+    html += '<div style="font-size:11px; color:#f87171;">スコア付きリンクなし（リンク抽出に問題あり）</div>';
+  }
+
+  // 検出住所一覧
+  var addrs = data.extracted_addresses || [];
+  html += '<div style="font-size:13px; font-weight:700; margin-top:12px; margin-bottom:6px;">📍 検出住所 (' + addrs.length + '件)</div>';
+  if (addrs.length > 0) {
+    addrs.forEach(function(a, i) {
+      html += '<div style="font-size:11px; margin-bottom:2px; color:var(--text-secondary);">' +
+        '[' + (i+1) + '] ' + escapeHtml(a.zip) + ' ' + escapeHtml(a.address) +
+        (a.tel ? ' TEL:' + escapeHtml(a.tel) : '') + '</div>';
+    });
+  } else {
+    html += '<div style="font-size:11px; color:#f87171;">住所検出なし</div>';
+  }
+
+  html += '</div></div>';
 
   resultsContent.innerHTML = html;
 }
