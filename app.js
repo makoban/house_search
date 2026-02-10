@@ -443,7 +443,7 @@ async function crawlSite(url) {
       var subText = extractTextFromHtml(subHtml);
       if (subText.length > 50) {
         var pageName = subLink.text || subLink.path;
-        var summary = extractPageSummary(subText);
+        var summary = extractPageSummary(subHtml);
         allTexts.push('【' + pageName + '】\n' + subText.slice(0, 2000));
         _crawledPages.push({ name: pageName, url: subLink.url, chars: subText.length, status: 'OK', summary: summary });
       }
@@ -812,22 +812,31 @@ function extractAreaFromAddress(address) {
   return { prefecture: pref, city: city, label: pref + ' ' + city };
 }
 
-// ページテキストから意味のある要約を抽出（ナビゲーションを除外）
-function extractPageSummary(text) {
-  // 改行で分割して意味のある行を探す
-  var lines = text.split(/[\n\r]+/);
-  var meaningful = [];
-  for (var i = 0; i < lines.length; i++) {
-    var line = lines[i].replace(/\s+/g, ' ').trim();
-    // 短すぎる行やナビ的な行をスキップ
-    if (line.length < 15) continue;
-    // よくあるナビゲーション文言をスキップ
-    if (/^(来場予約|カタログ請求|個人のお客様|法人のお客様|オーナー様|施工実例|イベント情報|企業情報|採用情報|トップ|HOME|MENU|会社概要|お問い合わせ|お知らせ|ニュース|プライバシー|サイトマップ|English|Copyright)/.test(line)) continue;
-    if (/^(家を建てる|土地を探す|分譲住宅を探す|リフォーム|エクステリア|住まいの)/.test(line)) continue;
-    meaningful.push(line);
-    if (meaningful.length >= 2) break;
+// ページHTMLからメインコンテンツの要約を抽出（ナビ/ヘッダー/フッター除外）
+function extractPageSummary(html) {
+  try {
+    var parser = new DOMParser();
+    var doc = parser.parseFromString(html, 'text/html');
+    // ナビ・ヘッダー・フッター・サイドバー・スクリプト等を除外
+    doc.querySelectorAll('header, nav, footer, aside, script, style, noscript, iframe, svg, form, .header, .footer, .nav, .sidebar, .menu, #header, #footer, #nav').forEach(function(el) { el.remove(); });
+    // main/articleがあればそこを優先
+    var mainEl = doc.querySelector('main, article, .main, .content, #main, #content, .entry-content');
+    var text = (mainEl || doc.body || doc).textContent || '';
+    // 整形
+    var lines = text.split(/[\n\r]+/);
+    var meaningful = [];
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i].replace(/\s+/g, ' ').trim();
+      if (line.length < 20) continue;
+      // 共通的なUI文言をスキップ
+      if (/^(TOP|HOME|MENU|Cookie|©|Copyright|All Rights Reserved)/.test(line)) continue;
+      meaningful.push(line);
+      if (meaningful.length >= 2) break;
+    }
+    return meaningful.join(' ').slice(0, 200);
+  } catch(e) {
+    return '';
   }
-  return meaningful.join(' ').slice(0, 200) || text.replace(/\s+/g, ' ').slice(0, 100);
 }
 
 // ---- JSON Parser ----
