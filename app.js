@@ -600,12 +600,51 @@ async function startAnalysis() {
     addLog('分析完了: ' + ((analysis.company && analysis.company.name) || '企業情報取得'), 'success');
     completeStep('step-analyze');
 
+    // Step 2.5: AI事業所フィルタリング
+    var rawAddresses = _crawledAddresses || [];
+    var extractedAddresses = rawAddresses;
+
+    if (rawAddresses.length > 1) {
+      addLog('抽出住所 ' + rawAddresses.length + '件をAIで事業所判定中...');
+      try {
+        var companyName = (analysis.company && analysis.company.name) || '';
+        var businessType = (analysis.company && analysis.company.business_type) || '';
+        var addrList = rawAddresses.map(function(a, i) {
+          return (i+1) + '. 〒' + a.zip.replace('〒','') + ' ' + a.address + (a.tel ? ' TEL:' + a.tel : '');
+        }).join('\n');
+
+        var filterPrompt = '以下は「' + companyName + '」（' + businessType + '）のWebサイトから抽出された住所リストです。\n\n' +
+          addrList + '\n\n' +
+          'この中で、この企業の実際の事業所（本社・支店・営業所・展示場・モデルハウスなど）の住所だけを特定してください。\n' +
+          '施工実績・建売物件・顧客所在地・取引先・無関係な住所は除外してください。\n\n' +
+          'JSON配列で事業所と判定した番号のみ返してください。例: [1, 3, 5]\n' +
+          '全て事業所の場合は全番号を返してください。';
+
+        var filterRaw = await callGemini(filterPrompt);
+        // JSONの配列を抽出
+        var filterMatch = filterRaw.match(/\[[\d\s,]+\]/);
+        if (filterMatch) {
+          var officeIndices = JSON.parse(filterMatch[0]);
+          extractedAddresses = officeIndices.map(function(idx) {
+            return rawAddresses[idx - 1];
+          }).filter(function(a) { return !!a; });
+          var removedCount = rawAddresses.length - extractedAddresses.length;
+          if (removedCount > 0) {
+            addLog('AI判定: ' + removedCount + '件の非事業所住所を除外 → 事業所 ' + extractedAddresses.length + '件', 'success');
+          } else {
+            addLog('AI判定: 全 ' + rawAddresses.length + '件が事業所と確認', 'success');
+          }
+        } else {
+          addLog('AI判定のパースに失敗 → 全住所を使用', 'info');
+        }
+      } catch (e) {
+        addLog('AI事業所判定スキップ: ' + e.message, 'info');
+      }
+    }
+
     // Step 3: Market Data (per area)
     activateStep('step-market');
-
-    // crawlSiteで抽出済みの住所を使用
-    var extractedAddresses = _crawledAddresses || [];
-    addLog('サイトから住所 ' + extractedAddresses.length + '件を検出済み', 'info');
+    addLog('サイトから事業所住所 ' + extractedAddresses.length + '件を確認済み', 'info');
 
     // ユニークなエリアを抽出
     var uniqueAreas = [];
