@@ -1,5 +1,5 @@
 // ========================================
-// 不動産市場把握AI v3.3 - Frontend Only
+// 不動産市場把握AI v3.4 - Frontend Only
 // ブラウザから直接Gemini API + e-Stat APIを呼び出す
 // ========================================
 
@@ -128,35 +128,45 @@ function updateStatusDisplay() {
   statusEl.innerHTML = html;
 }
 
-// ---- Gemini API Direct Call ----
+// ---- Gemini API Direct Call (with auto-retry on 429) ----
 async function callGemini(prompt) {
   var apiKey = localStorage.getItem('gemini_api_key');
   if (!apiKey) throw new Error('Gemini APIキーが設定されていません。右上の「🔑 API設定」から設定してください。');
 
-  var res = await fetch(GEMINI_API_BASE + '?key=' + apiKey, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.3,
-        maxOutputTokens: 8000,
-      }
-    })
-  });
+  var maxRetries = 3;
+  for (var attempt = 0; attempt <= maxRetries; attempt++) {
+    var res = await fetch(GEMINI_API_BASE + '?key=' + apiKey, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.3,
+          maxOutputTokens: 8000,
+        }
+      })
+    });
 
-  if (!res.ok) {
-    var errData = await res.json().catch(function() { return {}; });
-    var errMessage = (errData.error && errData.error.message) || ('API Error: ' + res.status);
-    if (res.status === 400 && errMessage.includes('API key')) {
-      throw new Error('APIキーが無効です。設定を確認してください。');
+    if (res.status === 429 && attempt < maxRetries) {
+      var waitSec = 5 * (attempt + 1);
+      addLog('  API制限検知、' + waitSec + '秒後にリトライ... (' + (attempt + 1) + '/' + maxRetries + ')', 'info');
+      await new Promise(function(r) { setTimeout(r, waitSec * 1000); });
+      continue;
     }
-    throw new Error(errMessage);
-  }
 
-  var data = await res.json();
-  var text = (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text) || '';
-  return text;
+    if (!res.ok) {
+      var errData = await res.json().catch(function() { return {}; });
+      var errMessage = (errData.error && errData.error.message) || ('API Error: ' + res.status);
+      if (res.status === 400 && errMessage.includes('API key')) {
+        throw new Error('APIキーが無効です。設定を確認してください。');
+      }
+      throw new Error(errMessage);
+    }
+
+    var data = await res.json();
+    var text = (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text) || '';
+    return text;
+  }
 }
 
 // ---- e-Stat API ----
