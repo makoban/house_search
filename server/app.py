@@ -18,7 +18,7 @@ OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
 
 @app.route('/api/health', methods=['GET'])
 def health():
-    return jsonify({'status': 'ok', 'version': '1.0.0'})
+    return jsonify({'status': 'ok', 'version': '1.0.1'})
 
 
 @app.route('/api/crawl', methods=['POST'])
