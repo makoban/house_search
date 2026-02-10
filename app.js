@@ -419,12 +419,42 @@ function extractAddressLines(text) {
   var results = [];
   for (var i = 0; i < lines.length; i++) {
     var line = lines[i].trim();
-    // 〒を含む行、またはTELを含む直前の行
     if (line.match(/〒\d{3}-?\d{4}/) || line.match(/TEL\s*[\d\-]+/)) {
       results.push(line);
     }
   }
   return results;
+}
+
+// クロールテキストから完全な住所情報を構造化して抽出
+function extractFullAddresses(text) {
+  if (!text) return [];
+  // 〒xxx-xxxx + 住所テキストを正規表現で抽出
+  var pattern = /〒(\d{3}-?\d{4})\s*([^\n〒]*?)(?:\s*TEL\s*([\d\-]+))?(?=\s*(?:〒|\n|$))/g;
+  var matches = [];
+  var seen = {};
+  var m;
+
+  while ((m = pattern.exec(text)) !== null) {
+    var zip = m[1].trim();
+    var addr = m[2].trim().replace(/\s+/g, ' ');
+    var tel = m[3] ? m[3].trim() : '';
+
+    // 重複排除（郵便番号ベース）
+    if (seen[zip]) continue;
+    seen[zip] = true;
+
+    // 住所テキストが短すぎるものを除外
+    if (addr.length < 5) continue;
+
+    matches.push({
+      zip: '〒' + zip,
+      address: addr,
+      tel: tel
+    });
+  }
+
+  return matches;
 }
 
 
@@ -533,13 +563,18 @@ async function startAnalysis() {
     addLog('レポート生成中...');
     await sleep(300);
 
+    // クロールテキストから住所を直接抽出（Geminiに頼らない）
+    var extractedAddresses = extractFullAddresses(pageContent);
+    addLog('サイトから住所 ' + extractedAddresses.length + '件を直接検出', 'info');
+
     analysisData = {
       url: url,
       company: analysis.company || {},
       location: analysis.location || {},
       market: marketData,
       timestamp: new Date().toISOString(),
-      data_source: estatAppId ? 'e-Stat + Gemini' : 'Gemini推計'
+      data_source: estatAppId ? 'e-Stat + Gemini' : 'Gemini推計',
+      extracted_addresses: extractedAddresses
     };
 
     renderResults(analysisData);
@@ -708,14 +743,19 @@ function renderResults(data) {
     '<tr><th>不動産事業</th><td>' + (company.is_real_estate ? '<span class="highlight--green">✅ 該当</span>' : '❌ 非該当') + '</td></tr>' +
     '</table>';
 
-  // Branches
-  if (company.branches && company.branches.length > 0) {
+  // 事業所一覧（クロールテキストから直接抽出した住所を表示）
+  var addrs = data.extracted_addresses || [];
+  if (addrs.length > 1) {
     html += '<div style="margin-top:12px; padding:12px 16px; background:rgba(99,102,241,0.08); border-radius:10px; border:1px solid rgba(99,102,241,0.15);">' +
-      '<div style="font-size:13px; font-weight:700; color:var(--accent-blue); margin-bottom:8px;">📍 事業所一覧</div>';
-    company.branches.forEach(function(b) {
-      html += '<div style="font-size:12px; color:var(--text-secondary); margin-bottom:4px;">' +
-        '<span style="font-weight:600; color:var(--text-primary);">' + escapeHtml(b.name || '') + '</span> ' +
-        escapeHtml(b.address || '') + '</div>';
+      '<div style="font-size:13px; font-weight:700; color:var(--accent-blue); margin-bottom:8px;">📍 事業所一覧 (' + addrs.length + '拠点)</div>';
+    addrs.forEach(function(a, idx) {
+      var label = idx === 0 ? '🏢 本社' : '📍 拠点' + idx;
+      html += '<div style="font-size:12px; color:var(--text-secondary); margin-bottom:6px; padding:4px 0; border-bottom:1px solid rgba(255,255,255,0.05);">' +
+        '<span style="font-weight:600; color:var(--text-primary); min-width:70px; display:inline-block;">' + label + '</span> ' +
+        '<span style="color:var(--accent-blue);">' + escapeHtml(a.zip) + '</span> ' +
+        escapeHtml(a.address) +
+        (a.tel ? ' <span style="color:var(--text-secondary); font-size:11px;">TEL ' + escapeHtml(a.tel) + '</span>' : '') +
+        '</div>';
     });
     html += '</div>';
   }
