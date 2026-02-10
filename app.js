@@ -6,6 +6,7 @@
 var GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 var CORS_PROXY = 'https://api.allorigins.win/raw?url=';
 var ESTAT_API_BASE = 'https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData';
+var _crawledAddresses = [];  // crawlSiteで抽出した住所をグローバルに保持
 
 // ---- Prefecture Codes ----
 var PREFECTURE_CODES = {
@@ -364,6 +365,9 @@ async function crawlSite(url) {
   var topText = extractTextFromHtml(topHtml);
   addLog('トップページ取得完了 (' + topText.length + '文字)', 'success');
 
+  // 全HTMLソースから住所を抽出（HTMLのままでマッチ）
+  var allHtmlSources = [topHtml];
+
   // トップページからリンクを抽出
   var links = extractLinks(topHtml, url);
   addLog('内部リンク ' + links.length + '件を検出', 'info');
@@ -383,29 +387,33 @@ async function crawlSite(url) {
     '【トップページ】\n' + topText.slice(0, 3000)
   ];
 
+  if (scoredLinks.length > 0) {
+    addLog('重要サブページ候補: ' + scoredLinks.slice(0, 5).map(function(l) { return l.text + '(' + l.score + '点)'; }).join(', '));
+  }
+
   for (var i = 0; i < maxSubPages; i++) {
     var subLink = scoredLinks[i];
     addLog('サブページ取得中: ' + subLink.text + ' (' + subLink.path + ')');
 
     var subHtml = await fetchSinglePage(subLink.url);
     if (subHtml) {
+      allHtmlSources.push(subHtml);
       var subText = extractTextFromHtml(subHtml);
       if (subText.length > 50) {
-        // 住所情報を優先抽出
-        var addressLines = extractAddressLines(subText);
-        var pageLabel = '【' + (subLink.text || subLink.path) + '】\n';
-        if (addressLines.length > 0) {
-          // 住所行を先頭に置き、残りのテキストを追加
-          allTexts.push(pageLabel + '《住所・事業所情報》\n' + addressLines.join('\n') + '\n\n' + subText.slice(0, 3000));
-        } else {
-          allTexts.push(pageLabel + subText.slice(0, 3000));
-        }
-        addLog('  → 取得成功 (' + subText.length + '文字, 住所' + addressLines.length + '件)', 'success');
+        allTexts.push('【' + (subLink.text || subLink.path) + '】\n' + subText.slice(0, 3000));
+        addLog('  → 取得成功 (' + subText.length + '文字)', 'success');
       }
+    } else {
+      addLog('  → 取得失敗', 'info');
     }
   }
 
   addLog('合計 ' + allTexts.length + 'ページの内容を取得完了', 'success');
+
+  // 全HTMLソースから住所を抽出（グローバルに保存）
+  var allHtmlCombined = allHtmlSources.join('\n');
+  _crawledAddresses = extractAddressesFromHtml(allHtmlCombined);
+  addLog('HTMLソースから住所 ' + _crawledAddresses.length + '件を直接検出', _crawledAddresses.length > 0 ? 'success' : 'info');
 
   // 全テキストを結合（上限15000文字）
   var combined = allTexts.join('\n\n---\n\n');
@@ -413,48 +421,55 @@ async function crawlSite(url) {
   return combined;
 }
 
-// 住所パターン（〒xxx-xxxx）を含む行を抽出
-function extractAddressLines(text) {
-  var lines = text.split('\n');
+// HTMLソースから直接住所を抽出（テキスト変換に依存しない）
+function extractAddressesFromHtml(html) {
+  if (!html) return [];
   var results = [];
-  for (var i = 0; i < lines.length; i++) {
-    var line = lines[i].trim();
-    if (line.match(/〒\d{3}-?\d{4}/) || line.match(/TEL\s*[\d\-]+/)) {
-      results.push(line);
-    }
-  }
-  return results;
-}
-
-// クロールテキストから完全な住所情報を構造化して抽出
-function extractFullAddresses(text) {
-  if (!text) return [];
-  // 〒xxx-xxxx + 住所テキストを正規表現で抽出
-  var pattern = /〒(\d{3}-?\d{4})\s*([^\n〒]*?)(?:\s*TEL\s*([\d\-]+))?(?=\s*(?:〒|\n|$))/g;
-  var matches = [];
   var seen = {};
+
+  // HTMLソースから〒xxx-xxxx パターンを直接検索
+  // HTMLタグを除去してプレーンテキスト化
+  var plainText = html.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&');
+
+  // 〒xxx-xxxx + その後の住所テキスト（次の〒まで）
+  var regex = /〒(\d{3}-?\d{4})\s*([^〒]{5,120})/g;
   var m;
 
-  while ((m = pattern.exec(text)) !== null) {
+  while ((m = regex.exec(plainText)) !== null) {
     var zip = m[1].trim();
-    var addr = m[2].trim().replace(/\s+/g, ' ');
-    var tel = m[3] ? m[3].trim() : '';
-
-    // 重複排除（郵便番号ベース）
     if (seen[zip]) continue;
     seen[zip] = true;
 
-    // 住所テキストが短すぎるものを除外
-    if (addr.length < 5) continue;
+    var rawAddr = m[2].trim();
+    // 住所部分を抽出（TEL/FAXの前まで）
+    var addrMatch = rawAddr.match(/^(.+?)(?:\s*(?:TEL|FAX|tel|fax|電話))/i);
+    var address = addrMatch ? addrMatch[1].trim() : rawAddr;
 
-    matches.push({
+    // 電話番号を抽出
+    var telMatch = rawAddr.match(/(?:TEL|tel|電話)[\s:]*(\d[\d\-]+\d)/i);
+    var tel = telMatch ? telMatch[1] : '';
+    if (!tel) {
+      // TELなしの場合、住所の後ろの数字列を電話番号として取得
+      var numMatch = rawAddr.match(/(\d{2,4}-\d{2,4}-\d{3,4})/);
+      if (numMatch && address.indexOf(numMatch[1]) < 0) {
+        tel = numMatch[1];
+      }
+    }
+
+    // 住所テキストを整形
+    address = address.replace(/\s+/g, ' ').replace(/[\n\r]/g, '').trim();
+    // 明らかに住所でないものを除外
+    if (address.length < 5 || address.length > 100) continue;
+    if (!address.match(/[都道府県市区町村郡]/)) continue;
+
+    results.push({
       zip: '〒' + zip,
-      address: addr,
+      address: address,
       tel: tel
     });
   }
 
-  return matches;
+  return results;
 }
 
 
@@ -563,9 +578,9 @@ async function startAnalysis() {
     addLog('レポート生成中...');
     await sleep(300);
 
-    // クロールテキストから住所を直接抽出（Geminiに頼らない）
-    var extractedAddresses = extractFullAddresses(pageContent);
-    addLog('サイトから住所 ' + extractedAddresses.length + '件を直接検出', 'info');
+    // crawlSiteで抽出済みの住所を使用（HTMLソースから直接抽出）
+    var extractedAddresses = _crawledAddresses || [];
+    addLog('サイトから住所 ' + extractedAddresses.length + '件を検出済み', 'info');
 
     analysisData = {
       url: url,
