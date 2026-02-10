@@ -1,5 +1,5 @@
 // ========================================
-// 不動産市場把握AI v2.7 - Frontend Only
+// 不動産市場把握AI v2.8 - Frontend Only
 // ブラウザから直接Gemini API + e-Stat APIを呼び出す
 // ========================================
 
@@ -396,48 +396,48 @@ async function crawlSite(url) {
   var links = extractLinks(topHtml, url);
   addLog('内部リンク ' + links.length + '件を検出', 'info');
 
-  // リンクをスコアリングして重要なものを選択
-  var scoredLinks = links.map(function(link) {
+  // リンクをスコアリングして重要順にソート（全リンクを巡回対象）
+  var allLinks = links.map(function(link) {
     return { url: link.url, path: link.path, text: link.text, score: scoreLink(link) };
   }).filter(function(link) {
-    return link.score > 0 && link.url !== url && link.url !== url + '/';
+    return link.url !== url && link.url !== url + '/';
   }).sort(function(a, b) {
     return b.score - a.score;
   });
 
-  // 上位5ページまで取得
-  var maxSubPages = Math.min(scoredLinks.length, 5);
+  // 全リンクを巡回（上限100ページ）
+  var maxSubPages = Math.min(allLinks.length, 100);
   var allTexts = [
     '【トップページ】\n' + topText.slice(0, 3000)
   ];
+  var _crawledPages = [{ name: 'トップページ', url: url, chars: topText.length, status: 'OK' }];
 
-  if (scoredLinks.length > 0) {
-    addLog('重要サブページ候補: ' + scoredLinks.slice(0, 5).map(function(l) { return l.text + '(' + l.score + '点)'; }).join(', '));
-    _crawlDebugInfo.scoredLinks = scoredLinks.slice(0, 10).map(function(l) { return { text: l.text, url: l.url, score: l.score }; });
-  } else {
-    addLog('重要サブページ候補: なし（スコア0以上のリンクが見つかりません）', 'info');
-  }
+  addLog('巡回対象: ' + maxSubPages + 'ページ（全 ' + allLinks.length + 'リンク中）', 'info');
 
   for (var i = 0; i < maxSubPages; i++) {
-    var subLink = scoredLinks[i];
-    addLog('サブページ取得中: ' + subLink.text + ' (' + subLink.path + ')');
+    var subLink = allLinks[i];
+    addLog('[' + (i+1) + '/' + maxSubPages + '] ' + (subLink.text || subLink.path));
 
     var subHtml = await fetchSinglePage(subLink.url);
     if (subHtml) {
       allHtmlSources.push(subHtml);
       var subText = extractTextFromHtml(subHtml);
       if (subText.length > 50) {
-        allTexts.push('【' + (subLink.text || subLink.path) + '】\n' + subText.slice(0, 3000));
-        addLog('  → 取得成功 (' + subText.length + '文字)', 'success');
+        var pageName = subLink.text || subLink.path;
+        allTexts.push('【' + pageName + '】\n' + subText.slice(0, 2000));
+        _crawledPages.push({ name: pageName, url: subLink.url, chars: subText.length, status: 'OK' });
       }
       _crawlDebugInfo.pages.push({ url: subLink.url, status: 'OK', size: subHtml.length, text: subLink.text });
     } else {
-      addLog('  → 取得失敗', 'info');
+      _crawledPages.push({ name: subLink.text || subLink.path, url: subLink.url, chars: 0, status: 'FAILED' });
       _crawlDebugInfo.pages.push({ url: subLink.url, status: 'FAILED', size: 0, text: subLink.text });
     }
   }
 
-  addLog('合計 ' + allTexts.length + 'ページの内容を取得完了', 'success');
+  // ページ一覧をグローバルに保存
+  _crawlDebugInfo.crawledPages = _crawledPages;
+
+  addLog('合計 ' + _crawledPages.filter(function(p) { return p.status === 'OK'; }).length + '/' + (maxSubPages + 1) + ' ページ取得完了', 'success');
 
   // 全HTMLソースから住所を抽出（グローバルに保存）
   var allHtmlCombined = allHtmlSources.join('\n');
@@ -816,6 +816,25 @@ function renderResults(data) {
     html += '</div>';
   }
   html += '</div></div>';
+
+  // 巡回ページ一覧
+  var crawledPages = (_crawlDebugInfo && _crawlDebugInfo.crawledPages) || [];
+  if (crawledPages.length > 0) {
+    var okCount = crawledPages.filter(function(p) { return p.status === 'OK'; }).length;
+    html += '<div class="result-card" style="border: 1px solid rgba(99,102,241,0.15);">' +
+      '<div class="result-card__header">' +
+      '<div class="result-card__icon">🌐</div>' +
+      '<div><div class="result-card__title">巡回ページ一覧</div>' +
+      '<div class="result-card__subtitle">' + okCount + '/' + crawledPages.length + ' ページ取得成功</div></div></div>' +
+      '<div class="result-card__body"><table class="data-table" style="font-size:12px;">' +
+      '<tr><th style="width:30px">#</th><th>ページ名</th><th style="width:70px">文字数</th><th style="width:50px">状態</th></tr>';
+    crawledPages.forEach(function(p, i) {
+      var icon = p.status === 'OK' ? '✅' : '❌';
+      var chars = p.status === 'OK' ? p.chars.toLocaleString() : '—';
+      html += '<tr><td>' + (i+1) + '</td><td>' + escapeHtml(p.name) + '</td><td>' + chars + '</td><td>' + icon + '</td></tr>';
+    });
+    html += '</table></div></div>';
+  }
 
   // Market Data Cards
   if (market) {
