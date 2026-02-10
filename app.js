@@ -1,4 +1,4 @@
-// ========================================
+﻿// ========================================
 // 不動産市場把握AI v3.5 - Frontend Only
 // ブラウザから直接Gemini API + e-Stat APIを呼び出す
 // ========================================
@@ -661,6 +661,55 @@ async function startAnalysis() {
     }
 
     addLog('全 ' + markets.length + ' エリアの市場データ収集完了', 'success');
+
+    // Step 3.5: 全エリア横断AI分析（経営層向けインサイト）
+    var crossAreaInsight = null;
+    if (markets.length >= 2) {
+      addLog('全エリア横断分析を実行中...');
+      try {
+        var summaryForAI = markets.map(function(mkt) {
+          var d = mkt.data || {};
+          var pop = d.population || {};
+          var con = d.construction || {};
+          var hou = d.housing || {};
+          var lp = d.land_price || {};
+          var hp = d.home_prices || {};
+          var comp = d.competition || {};
+          var pot = d.potential || {};
+          return {
+            area: mkt.area.label,
+            isHQ: mkt.area.isHQ || false,
+            population: pop.total_population || 0,
+            households: pop.households || 0,
+            age30_45_pct: pop.age_30_45_pct || 0,
+            construction_total: con.total || 0,
+            ownership_rate: hou.ownership_rate || 0,
+            vacancy_rate: hou.vacancy_rate || 0,
+            land_tsubo: lp.residential_tsubo || 0,
+            avg_home_price: hp.avg_price || 0,
+            competitors: comp.total_companies || 0,
+            annual_converts: pot.annual_converts || 0,
+            per_company: pot.per_company || 0
+          };
+        });
+        var crossPrompt = '以下は同一企業の複数事業所がある各エリアの市場データです。経営層向けに分析してください。\n\n' +
+          JSON.stringify(summaryForAI, null, 2) + '\n\n' +
+          '以下のJSON形式で回答してください:\n' +
+          '{\n' +
+          '  "opportunity_ranking": [{"rank":1,"area":"エリア名","reason":"理由(50字以内)","score":85},...],\n' +
+          '  "strategic_summary": "全体の戦略的要約(200字以内)",\n' +
+          '  "sales_advice": "営業チームへのアドバイス(200字以内)",\n' +
+          '  "risk_areas": "リスクのあるエリアと理由(100字以内)",\n' +
+          '  "growth_areas": "成長が見込めるエリアと理由(100字以内)"\n' +
+          '}';
+        var crossRaw = await callGemini(crossPrompt);
+        crossAreaInsight = parseJSON(crossRaw);
+        addLog('横断分析完了', 'success');
+      } catch (e) {
+        addLog('横断分析スキップ: ' + e.message, 'info');
+      }
+    }
+
     completeStep('step-market');
 
     // Step 4: Render Report
@@ -674,6 +723,7 @@ async function startAnalysis() {
       location: analysis.location || {},
       markets: markets,
       market: markets.length > 0 ? markets[0].data : {},
+      crossAreaInsight: crossAreaInsight,
       timestamp: new Date().toISOString(),
       data_source: estatAppId ? 'e-Stat + Gemini' : 'Gemini推計',
       extracted_addresses: extractedAddresses
@@ -1144,13 +1194,126 @@ function exportExcel() {
   var wb = XLSX.utils.book_new();
   var company = analysisData.company || {};
   var markets = analysisData.markets || [];
+  var cross = analysisData.crossAreaInsight || {};
 
-  // ===== Sheet 1: 会社概要 =====
+  // ヘルパー: テキストバーチャート
+  function makeBar(value, maxVal) {
+    if (!value || !maxVal) return '';
+    var len = Math.round((value / maxVal) * 20);
+    var bar = '';
+    for (var b = 0; b < len; b++) bar += '█';
+    return bar;
+  }
+
+  // ===== Sheet 1: 全社サマリー =====
+  var s0 = [];
+  s0.push(['全社エリア比較サマリー — ' + (company.name || '企業名')]);
+  s0.push(['出力日: ' + new Date().toLocaleDateString('ja-JP'), '', '', '', '', '', '', '', '', '分析URL: ' + (analysisData.url || '')]);
+  s0.push([]);
+
+  if (markets.length > 0) {
+    // 比較表ヘッダー
+    s0.push(['No', 'エリア名', '人口', '世帯数', '着工(戸/年)', '持家率(%)', '空家率(%)', '坪単価(万)', '住宅平均(万)', '競合数', '年間転換', '1社獲得(棟)', 'チャンスバー']);
+
+    var popMax = 0, convMax = 0;
+    var totPop = 0, totHH = 0, totCon = 0, totOwn = 0, totVac = 0, totLand = 0, totPrice = 0, totComp = 0, totConv = 0, totPer = 0;
+    var cnt = 0;
+
+    var areaRows = [];
+    markets.forEach(function(mkt) {
+      var d = mkt.data || {};
+      var pop = (d.population || {}).total_population || 0;
+      var hh = (d.population || {}).households || 0;
+      var con = (d.construction || {}).total || 0;
+      var own = (d.housing || {}).ownership_rate || 0;
+      var vac = (d.housing || {}).vacancy_rate || 0;
+      var landRaw = (d.land_price || {}).residential_tsubo || 0;
+      var land = landRaw > 10000 ? Math.round(landRaw / 10000) : landRaw;
+      var priceRaw = (d.home_prices || {}).avg_price || 0;
+      var price = priceRaw > 50000 ? Math.round(priceRaw / 10000) : priceRaw;
+      var comp = (d.competition || {}).total_companies || 0;
+      var conv = (d.potential || {}).annual_converts || 0;
+      var per = (d.potential || {}).per_company || 0;
+
+      if (pop > popMax) popMax = pop;
+      if (conv > convMax) convMax = conv;
+
+      totPop += pop; totHH += hh; totCon += con; totOwn += own; totVac += vac;
+      totLand += land; totPrice += price; totComp += comp; totConv += conv; totPer += per;
+      cnt++;
+
+      var label = (mkt.area.isHQ ? '🏢 ' : '📍 ') + mkt.area.label;
+      areaRows.push([label, pop, hh, con, own, vac, land, price, comp, conv, per]);
+    });
+
+    areaRows.forEach(function(r, idx) {
+      var score = convMax > 0 ? Math.round((r[9] / convMax) * 100) : 0;
+      s0.push([idx + 1, r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[10], makeBar(score, 100) + ' ' + score + '点']);
+    });
+
+    // 合計・平均
+    var n = cnt || 1;
+    s0.push([]);
+    s0.push(['', '【合計】', totPop, totHH, totCon, '', '', '', '', totComp, totConv, totPer, '']);
+    s0.push(['', '【平均】', Math.round(totPop / n), Math.round(totHH / n), Math.round(totCon / n),
+      (totOwn / n).toFixed(1), (totVac / n).toFixed(1), Math.round(totLand / n), Math.round(totPrice / n),
+      Math.round(totComp / n), Math.round(totConv / n), (totPer / n).toFixed(1), '']);
+
+    s0.push([]);
+    s0.push([]);
+
+    // AI横断分析
+    s0.push(['■ AI経営分析']);
+    s0.push([]);
+
+    if (cross.opportunity_ranking && cross.opportunity_ranking.length > 0) {
+      s0.push(['▼ チャンスランキング（営業優先度）']);
+      s0.push(['順位', 'エリア', 'スコア', '理由']);
+      cross.opportunity_ranking.forEach(function(r) {
+        s0.push([r.rank || '', r.area || '', r.score || '', r.reason || '']);
+      });
+      s0.push([]);
+    }
+
+    if (cross.strategic_summary) {
+      s0.push(['▼ 経営戦略サマリー']);
+      s0.push([cross.strategic_summary]);
+      s0.push([]);
+    }
+
+    if (cross.sales_advice) {
+      s0.push(['▼ 営業チームへのアドバイス']);
+      s0.push([cross.sales_advice]);
+      s0.push([]);
+    }
+
+    if (cross.growth_areas) {
+      s0.push(['▼ 成長が見込めるエリア']);
+      s0.push([cross.growth_areas]);
+      s0.push([]);
+    }
+
+    if (cross.risk_areas) {
+      s0.push(['▼ リスク・注意エリア']);
+      s0.push([cross.risk_areas]);
+    }
+  }
+
+  var ws0 = XLSX.utils.aoa_to_sheet(s0);
+  ws0['!cols'] = [
+    { wch: 5 }, { wch: 24 }, { wch: 10 }, { wch: 10 }, { wch: 12 },
+    { wch: 10 }, { wch: 10 }, { wch: 11 }, { wch: 12 }, { wch: 8 },
+    { wch: 12 }, { wch: 12 }, { wch: 28 }
+  ];
+  ws0['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 12 } }];
+  XLSX.utils.book_append_sheet(wb, ws0, '全社サマリー');
+
+  // ===== Sheet 2: 会社概要 =====
   var s1Data = [
-    ['不動産市場把握AI - 分析レポート'],
+    ['企業概要 — ' + (company.name || '')],
     ['出力日: ' + new Date().toLocaleDateString('ja-JP')],
     [],
-    ['■ 企業情報'],
+    ['■ 基本情報'],
     ['企業名', company.name || '—'],
     ['本社所在地', company.address || '—'],
     ['事業内容', company.business_type || '—'],
@@ -1166,7 +1329,6 @@ function exportExcel() {
     [company.weaknesses || '—'],
   ];
 
-  // 事業所一覧
   if (company.offices && company.offices.length > 0) {
     s1Data.push([]);
     s1Data.push(['■ 事業所一覧 (' + company.offices.length + '拠点)']);
@@ -1179,11 +1341,10 @@ function exportExcel() {
 
   var ws1 = XLSX.utils.aoa_to_sheet(s1Data);
   ws1['!cols'] = [{ wch: 18 }, { wch: 50 }, { wch: 20 }, { wch: 18 }];
-  // タイトル行をマージ
   ws1['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 3 } }];
   XLSX.utils.book_append_sheet(wb, ws1, '会社概要');
 
-  // ===== Sheet 2: 巡回ページ =====
+  // ===== Sheet 3: 巡回ページ =====
   var crawledPages = (_crawlDebugInfo && _crawlDebugInfo.crawledPages) || [];
   if (crawledPages.length > 0) {
     var s2Data = [['No.', 'ページ名', '文字数', 'URL', '要約']];
@@ -1195,21 +1356,20 @@ function exportExcel() {
     XLSX.utils.book_append_sheet(wb, ws2, '巡回ページ');
   }
 
-  // ===== Sheet 3+: エリア別市場データ =====
+  // ===== Sheet 4+: エリア別詳細 =====
   if (markets.length > 0) {
     markets.forEach(function(mkt, idx) {
       var m = mkt.data || {};
       var areaLabel = m.area_name || (mkt.area && mkt.area.label) || 'エリア' + (idx + 1);
-      var sheetName = areaLabel.slice(0, 28); // Excelシート名は31文字制限
+      var sheetName = areaLabel.slice(0, 28);
       var rows = [];
 
-      rows.push(['エリア別市場データ: ' + areaLabel]);
+      rows.push(['エリア詳細: ' + areaLabel]);
       rows.push([]);
 
-      // ① 人口
       if (m.population) {
         var pop = m.population;
-        rows.push(['① 人口・世帯データ', '', 'データソース:', pop.source || '推計']);
+        rows.push(['① 人口・世帯データ', '', 'ソース:', pop.source || '推計']);
         rows.push(['総人口', pop.total_population || 0]);
         rows.push(['世帯数', pop.households || 0]);
         rows.push(['30〜45歳比率', (pop.age_30_45_pct || 0) + '%']);
@@ -1217,40 +1377,32 @@ function exportExcel() {
         rows.push([]);
       }
 
-      // ② 建築着工
       if (m.construction) {
         var con = m.construction;
         rows.push(['② 建築着工統計']);
         rows.push(['持家 着工戸数', (con.owner_occupied || 0) + ' 戸/年']);
         rows.push(['全体 着工戸数', (con.total || 0) + ' 戸/年']);
         rows.push(['前年比', con.yoy_change || '—']);
-        rows.push(['年度', con.year || '—']);
-        rows.push(['データソース', con.source || '推計']);
         rows.push([]);
       }
 
-      // ③ 持ち家率・空き家率
       if (m.housing) {
         var hou = m.housing;
         rows.push(['③ 持ち家率・空き家率']);
         rows.push(['持ち家率', (hou.ownership_rate || 0) + '%']);
         rows.push(['空き家率', (hou.vacancy_rate || 0) + '%']);
-        rows.push(['賃貸空室率', (hou.rental_vacancy || 0) + '%']);
         rows.push([]);
       }
 
-      // ④ 土地相場
       if (m.land_price) {
         var lp = m.land_price;
         rows.push(['④ 土地相場']);
         rows.push(['住宅地 平均坪単価', lp.residential_tsubo ? '¥' + formatNumber(lp.residential_tsubo) : '—']);
         rows.push(['住宅地 平均㎡単価', lp.residential_sqm ? '¥' + formatNumber(lp.residential_sqm) + '/㎡' : '—']);
-        rows.push(['商業地 平均㎡単価', lp.commercial_sqm ? '¥' + formatNumber(lp.commercial_sqm) + '/㎡' : '—']);
         rows.push(['前年比', lp.yoy_change || '—']);
         rows.push([]);
       }
 
-      // ⑤ 新築住宅相場
       if (m.home_prices) {
         var hp = m.home_prices;
         var avgP = hp.avg_price || 0;
@@ -1264,7 +1416,6 @@ function exportExcel() {
         rows.push([]);
       }
 
-      // ⑥ 競合分析
       if (m.competition) {
         var comp = m.competition;
         rows.push(['⑥ 競合分析']);
@@ -1273,129 +1424,28 @@ function exportExcel() {
         rows.push([]);
       }
 
-      // 潜在顧客数
       if (m.potential) {
         var pot = m.potential;
-        rows.push(['潜在顧客数の試算']);
+        rows.push(['⑦ 潜在顧客']);
         rows.push(['30〜45歳 世帯数', formatNumber(pot.target_households) + ' 世帯']);
         rows.push(['賃貸世帯数', formatNumber(pot.rental_households) + ' 世帯']);
-        rows.push(['年間持ち家転換推定', formatNumber(pot.annual_converts) + ' 世帯/年']);
-        rows.push(['1社あたり年間獲得', (pot.per_company || '—') + ' 棟']);
+        rows.push(['年間持ち家転換', formatNumber(pot.annual_converts) + ' 世帯/年']);
+        rows.push(['1社あたり獲得', (pot.per_company || '—') + ' 棟']);
         if (pot.ai_insight) {
           rows.push([]);
-          rows.push(['AIからの提言']);
-          rows.push([pot.ai_insight]);
+          rows.push(['AIコメント', pot.ai_insight]);
         }
       }
 
       var ws = XLSX.utils.aoa_to_sheet(rows);
-      ws['!cols'] = [{ wch: 22 }, { wch: 30 }, { wch: 15 }, { wch: 20 }];
+      ws['!cols'] = [{ wch: 22 }, { wch: 35 }, { wch: 12 }, { wch: 20 }];
       ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 3 } }];
       XLSX.utils.book_append_sheet(wb, ws, sheetName);
     });
-  } else if (analysisData.market) {
-    // 旧式単一market
-    var m = analysisData.market;
-    var rows = [['市場データ']];
-    if (m.population) {
-      rows.push(['総人口', m.population.total_population || 0]);
-      rows.push(['世帯数', m.population.households || 0]);
-    }
-    var ws = XLSX.utils.aoa_to_sheet(rows);
-    ws['!cols'] = [{ wch: 22 }, { wch: 30 }];
-    XLSX.utils.book_append_sheet(wb, ws, '市場データ');
   }
 
-  // ファイル名生成 & ダウンロード
   var fileName = '不動産市場分析_' + (company.name || 'report') + '_' + new Date().toISOString().slice(0, 10) + '.xlsx';
   XLSX.writeFile(wb, fileName);
-}
-
-// ---- PDF Export ----
-async function exportPDF() {
-  var element = document.getElementById('results-content');
-  if (!element) return;
-
-  // --- PDF前の準備: 全エリアタブを展開 ---
-  var tabContents = element.querySelectorAll('.area-tab-content');
-  var tabBtnBar = element.querySelector('.area-tab-btns');
-  var originalStates = [];
-
-  // 全タブ内容を表示 + エリア見出しを追加
-  tabContents.forEach(function(el, idx) {
-    originalStates.push(el.style.display);
-    el.style.display = 'block';
-    // エリアタイトルをPDF用に挿入
-    var areaLabel = el.getAttribute('data-area-label');
-    if (areaLabel) {
-      var titleDiv = document.createElement('div');
-      titleDiv.className = 'pdf-area-title';
-      titleDiv.style.cssText = 'font-size:13px; font-weight:700; color:#818cf8; padding:10px 0 6px; margin-top:8px; border-top:2px solid rgba(99,102,241,0.3); page-break-before:always;';
-      if (idx === 0) titleDiv.style.pageBreakBefore = 'auto';
-      titleDiv.textContent = '📊 ' + areaLabel;
-      el.insertBefore(titleDiv, el.firstChild);
-    }
-  });
-
-  // タブボタンバーを非表示
-  if (tabBtnBar) tabBtnBar.style.display = 'none';
-
-  // --- PDF用CSSを注入 ---
-  var pdfStyle = document.createElement('style');
-  pdfStyle.id = 'pdf-export-style';
-  pdfStyle.textContent =
-    '#results-content { font-size: 10px !important; }' +
-    '#results-content .result-card { page-break-inside: avoid; margin-bottom: 8px !important; }' +
-    '#results-content .result-card__title { font-size: 13px !important; }' +
-    '#results-content .result-card__subtitle { font-size: 10px !important; }' +
-    '#results-content .stat-box__value { font-size: 18px !important; }' +
-    '#results-content .stat-box__label { font-size: 9px !important; }' +
-    '#results-content .stat-box { padding: 8px !important; }' +
-    '#results-content .stat-grid { gap: 6px !important; }' +
-    '#results-content .data-table th, #results-content .data-table td { font-size: 10px !important; padding: 4px 8px !important; }' +
-    '#results-content .summary-box { font-size: 10px !important; padding: 8px 12px !important; }' +
-    '#results-content .summary-box__title { font-size: 11px !important; }' +
-    '#results-content .summary-box__text { font-size: 10px !important; }' +
-    '#results-content .highlight { font-size: 14px !important; }' +
-    '#results-content .highlight--amber { font-size: 14px !important; }' +
-    '#results-content .tag { font-size: 9px !important; padding: 2px 8px !important; }' +
-    // エリアデータ内の各セクションをページまたぎ防止
-    '#results-content .area-tab-content > div { page-break-inside: avoid; }' +
-    // 巡回ページ一覧の各アイテム
-    '#results-content .page-list-item { page-break-inside: avoid; font-size: 10px !important; }' +
-    // 事業所一覧
-    '#results-content .office-list > div { page-break-inside: avoid; }';
-  document.head.appendChild(pdfStyle);
-
-  var opt = {
-    margin: [8, 8, 8, 8],
-    filename: '不動産市場分析_' + ((analysisData && analysisData.company && analysisData.company.name) || 'report') + '_' + new Date().toISOString().slice(0,10) + '.pdf',
-    image: { type: 'jpeg', quality: 0.92 },
-    html2canvas: { scale: 1.5, useCORS: true, backgroundColor: '#111827' },
-    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-    pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
-  };
-
-  element.style.color = '#e2e8f0';
-
-  try {
-    await html2pdf().set(opt).from(element).save();
-  } finally {
-    // --- PDF後: 元の状態に戻す ---
-    // PDF用CSSを除去
-    var styleEl = document.getElementById('pdf-export-style');
-    if (styleEl) styleEl.remove();
-
-    // タブボタンバーを復元
-    if (tabBtnBar) tabBtnBar.style.display = '';
-
-    // タブの表示状態を復元 + PDF用タイトルを除去
-    tabContents.forEach(function(el, idx) {
-      el.style.display = originalStates[idx];
-      var pdfTitle = el.querySelector('.pdf-area-title');
-      if (pdfTitle) pdfTitle.remove();
-    });
-  }
 }
 
 // ---- Reset ----
