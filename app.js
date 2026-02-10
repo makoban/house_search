@@ -1,5 +1,5 @@
 // ========================================
-// 不動産市場把握AI v3.1 - Frontend Only
+// 不動産市場把握AI v3.2 - Frontend Only
 // ブラウザから直接Gemini API + e-Stat APIを呼び出す
 // ========================================
 
@@ -786,30 +786,53 @@ function buildMarketPromptForArea(analysis, estatPop, estatHousing, area) {
     '}';
 }
 
+// 政令指定都市 → 都道府県マッピング
+var CITY_TO_PREF = {
+  '札幌市':'北海道','仙台市':'宮城県','さいたま市':'埼玉県','千葉市':'千葉県',
+  '横浜市':'神奈川県','川崎市':'神奈川県','相模原市':'神奈川県','新潟市':'新潟県',
+  '静岡市':'静岡県','浜松市':'静岡県','名古屋市':'愛知県','京都市':'京都府',
+  '大阪市':'大阪府','堺市':'大阪府','神戸市':'兵庫県','岡山市':'岡山県',
+  '広島市':'広島県','北九州市':'福岡県','福岡市':'福岡県','熊本市':'熊本県'
+};
+
 // 住所から都道府県・市区町村を抽出（最小区分まで）
 function extractAreaFromAddress(address) {
   if (!address) return null;
+
+  // 1) 都道府県が明示されている場合
   var prefMatch = address.match(/(北海道|東京都|大阪府|京都府|.{2,3}県)/);
-  if (!prefMatch) return null;
-  var pref = prefMatch[1];
-  var rest = address.slice(address.indexOf(pref) + pref.length);
-  var city = '';
-  if (pref === '東京都') {
-    // 東京都の特別区（23区）を直接取得
-    var wardMatch = rest.match(/^(.+?区)/);
-    city = wardMatch ? wardMatch[1] : '';
-  } else {
-    // 政令指定都市: 市+区まで取得、郡: 郡+町村まで取得
-    var cityMatch = rest.match(/^(.+?市)(.+?区)?/) || rest.match(/^(.+?郡)(.+?[町村])/);
-    if (cityMatch) {
-      city = cityMatch[1] + (cityMatch[2] || '');
+  if (prefMatch) {
+    var pref = prefMatch[1];
+    var rest = address.slice(address.indexOf(pref) + pref.length);
+    var city = '';
+    if (pref === '東京都') {
+      var wardMatch = rest.match(/^(.+?区)/);
+      city = wardMatch ? wardMatch[1] : '';
     } else {
-      // 区のみ（大阪市等の区）
-      var kuMatch = rest.match(/^(.+?区)/);
-      city = kuMatch ? kuMatch[1] : '';
+      var cityMatch = rest.match(/^(.+?市)(.+?区)?/) || rest.match(/^(.+?郡)(.+?[町村])/);
+      if (cityMatch) {
+        city = cityMatch[1] + (cityMatch[2] || '');
+      } else {
+        var kuMatch = rest.match(/^(.+?区)/);
+        city = kuMatch ? kuMatch[1] : '';
+      }
+    }
+    return { prefecture: pref, city: city, label: pref + ' ' + city };
+  }
+
+  // 2) 県名なし → 政令指定都市名から都道府県を逆引き
+  for (var cName in CITY_TO_PREF) {
+    var idx = address.indexOf(cName);
+    if (idx >= 0) {
+      var cPref = CITY_TO_PREF[cName];
+      var cRest = address.slice(idx);
+      var cMatch = cRest.match(/^(.+?市)(.+?区)?/);
+      var cCity = cMatch ? cMatch[1] + (cMatch[2] || '') : cName;
+      return { prefecture: cPref, city: cCity, label: cPref + ' ' + cCity };
     }
   }
-  return { prefecture: pref, city: city, label: pref + ' ' + city };
+
+  return null;
 }
 
 // ページHTMLからメインコンテンツの要約を抽出（ナビ/ヘッダー/フッター除外）
