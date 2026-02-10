@@ -273,24 +273,136 @@ async function fetchEstatHousing(prefecture) {
 }
 
 // ---- Fetch Page via CORS Proxy ----
-async function fetchPageContent(url) {
+// 重要なサブページを特定するキーワード
+var IMPORTANT_PATH_KEYWORDS = [
+  'company', 'about', 'corporate', 'profile', 'access', 'overview',
+  'summary', 'gaiyou', 'kaisya', 'info', 'office',
+  '会社概要', '会社案内', '企業情報', '事業所', 'greeting'
+];
+
+async function fetchSinglePage(url) {
   try {
     var proxyUrl = CORS_PROXY + encodeURIComponent(url);
-    var res = await fetch(proxyUrl, { signal: AbortSignal.timeout(15000) });
+    var res = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     var html = await res.text();
-
-    var parser = new DOMParser();
-    var doc = parser.parseFromString(html, 'text/html');
-    doc.querySelectorAll('script, style, nav, footer, header, noscript, iframe').forEach(function(el) { el.remove(); });
-
-    var text = (doc.body && doc.body.innerText) || (doc.body && doc.body.textContent) || '';
-    return text.replace(/\s+/g, ' ').replace(/\n{3,}/g, '\n\n').trim().slice(0, 5000);
+    return html;
   } catch (e) {
     console.warn('[Fetch] Could not fetch ' + url + ': ' + e.message);
     return null;
   }
 }
+
+function extractTextFromHtml(html) {
+  var parser = new DOMParser();
+  var doc = parser.parseFromString(html, 'text/html');
+  doc.querySelectorAll('script, style, nav, noscript, iframe, svg').forEach(function(el) { el.remove(); });
+  var text = (doc.body && doc.body.innerText) || (doc.body && doc.body.textContent) || '';
+  return text.replace(/\s+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function extractLinks(html, baseUrl) {
+  var parser = new DOMParser();
+  var doc = parser.parseFromString(html, 'text/html');
+  var links = [];
+  var seen = {};
+  var base;
+  try { base = new URL(baseUrl); } catch(e) { return []; }
+
+  doc.querySelectorAll('a[href]').forEach(function(a) {
+    try {
+      var href = a.getAttribute('href');
+      if (!href || href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:')) return;
+      var resolved = new URL(href, baseUrl);
+      // 同じドメインのみ
+      if (resolved.hostname !== base.hostname) return;
+      var path = resolved.pathname.toLowerCase();
+      // 画像・PDF・外部ファイルを除外
+      if (/\.(jpg|jpeg|png|gif|svg|pdf|zip|doc|mp4|mp3)$/i.test(path)) return;
+      var key = resolved.origin + resolved.pathname;
+      if (seen[key]) return;
+      seen[key] = true;
+      links.push({ url: key, path: path, text: (a.textContent || '').trim() });
+    } catch(e) { /* ignore invalid URLs */ }
+  });
+  return links;
+}
+
+function scoreLink(link) {
+  var score = 0;
+  var path = link.path;
+  var text = link.text;
+
+  for (var i = 0; i < IMPORTANT_PATH_KEYWORDS.length; i++) {
+    if (path.indexOf(IMPORTANT_PATH_KEYWORDS[i]) >= 0) score += 10;
+    if (text.indexOf(IMPORTANT_PATH_KEYWORDS[i]) >= 0) score += 5;
+  }
+
+  // 日本語のリンクテキストでスコアリング
+  if (text.indexOf('会社概要') >= 0 || text.indexOf('会社案内') >= 0) score += 20;
+  if (text.indexOf('企業情報') >= 0 || text.indexOf('事業所') >= 0) score += 15;
+  if (text.indexOf('アクセス') >= 0 || text.indexOf('所在地') >= 0) score += 15;
+  if (text.indexOf('代表挨拶') >= 0 || text.indexOf('社長') >= 0) score += 8;
+  if (text.indexOf('事業内容') >= 0 || text.indexOf('サービス') >= 0) score += 10;
+  if (text.indexOf('店舗') >= 0 || text.indexOf('支店') >= 0) score += 10;
+  if (text.indexOf('施工事例') >= 0 || text.indexOf('実績') >= 0) score += 5;
+
+  // 深いパスはやや減点
+  var depth = (path.match(/\//g) || []).length;
+  if (depth > 4) score -= 3;
+
+  return score;
+}
+
+async function crawlSite(url) {
+  addLog('トップページを取得中...', 'info');
+  var topHtml = await fetchSinglePage(url);
+  if (!topHtml) return null;
+
+  var topText = extractTextFromHtml(topHtml);
+  addLog('トップページ取得完了 (' + topText.length + '文字)', 'success');
+
+  // トップページからリンクを抽出
+  var links = extractLinks(topHtml, url);
+  addLog('内部リンク ' + links.length + '件を検出', 'info');
+
+  // リンクをスコアリングして重要なものを選択
+  var scoredLinks = links.map(function(link) {
+    return { url: link.url, path: link.path, text: link.text, score: scoreLink(link) };
+  }).filter(function(link) {
+    return link.score > 0 && link.url !== url && link.url !== url + '/';
+  }).sort(function(a, b) {
+    return b.score - a.score;
+  });
+
+  // 上位5ページまで取得
+  var maxSubPages = Math.min(scoredLinks.length, 5);
+  var allTexts = [
+    '【トップページ】\n' + topText.slice(0, 3000)
+  ];
+
+  for (var i = 0; i < maxSubPages; i++) {
+    var subLink = scoredLinks[i];
+    addLog('サブページ取得中: ' + subLink.text + ' (' + subLink.path + ')');
+
+    var subHtml = await fetchSinglePage(subLink.url);
+    if (subHtml) {
+      var subText = extractTextFromHtml(subHtml);
+      if (subText.length > 50) {
+        allTexts.push('【' + (subLink.text || subLink.path) + '】\n' + subText.slice(0, 2000));
+        addLog('  → 取得成功 (' + subText.length + '文字)', 'success');
+      }
+    }
+  }
+
+  addLog('合計 ' + allTexts.length + 'ページの内容を取得完了', 'success');
+
+  // 全テキストを結合（上限10000文字）
+  var combined = allTexts.join('\n\n---\n\n');
+  if (combined.length > 10000) combined = combined.slice(0, 10000);
+  return combined;
+}
+
 
 // ---- Progress Log Helper ----
 function addLog(message, type) {
@@ -336,18 +448,19 @@ async function startAnalysis() {
   }
 
   try {
-    // Step 1: Fetch page content
+    // Step 1: Crawl site (top + subpages)
     activateStep('step-crawl');
-    addLog('Webサイトの内容を取得中: ' + url);
+    addLog('Webサイトを巡回中: ' + url);
 
-    var pageContent = await fetchPageContent(url);
+    var pageContent = await crawlSite(url);
     if (pageContent) {
-      addLog('ページ内容を取得しました (' + pageContent.length + '文字)', 'success');
+      addLog('サイト内容の取得完了 (合計 ' + pageContent.length + '文字)', 'success');
     } else {
       addLog('CORSプロキシ経由の取得に失敗。URLのみでAI分析を実行します。', 'info');
       pageContent = '';
     }
     completeStep('step-crawl');
+
 
     // Step 2: AI Business Analysis
     activateStep('step-analyze');
