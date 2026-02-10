@@ -391,18 +391,40 @@ async function crawlSite(url) {
     if (subHtml) {
       var subText = extractTextFromHtml(subHtml);
       if (subText.length > 50) {
-        allTexts.push('【' + (subLink.text || subLink.path) + '】\n' + subText.slice(0, 2000));
-        addLog('  → 取得成功 (' + subText.length + '文字)', 'success');
+        // 住所情報を優先抽出
+        var addressLines = extractAddressLines(subText);
+        var pageLabel = '【' + (subLink.text || subLink.path) + '】\n';
+        if (addressLines.length > 0) {
+          // 住所行を先頭に置き、残りのテキストを追加
+          allTexts.push(pageLabel + '《住所・事業所情報》\n' + addressLines.join('\n') + '\n\n' + subText.slice(0, 3000));
+        } else {
+          allTexts.push(pageLabel + subText.slice(0, 3000));
+        }
+        addLog('  → 取得成功 (' + subText.length + '文字, 住所' + addressLines.length + '件)', 'success');
       }
     }
   }
 
   addLog('合計 ' + allTexts.length + 'ページの内容を取得完了', 'success');
 
-  // 全テキストを結合（上限10000文字）
+  // 全テキストを結合（上限15000文字）
   var combined = allTexts.join('\n\n---\n\n');
-  if (combined.length > 10000) combined = combined.slice(0, 10000);
+  if (combined.length > 15000) combined = combined.slice(0, 15000);
   return combined;
+}
+
+// 住所パターン（〒xxx-xxxx）を含む行を抽出
+function extractAddressLines(text) {
+  var lines = text.split('\n');
+  var results = [];
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i].trim();
+    // 〒を含む行、またはTELを含む直前の行
+    if (line.match(/〒\d{3}-?\d{4}/) || line.match(/TEL\s*[\d\-]+/)) {
+      results.push(line);
+    }
+  }
+  return results;
 }
 
 
