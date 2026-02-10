@@ -1136,10 +1136,10 @@ function renderResults(data) {
     html += '<div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px;">' +
       '<div style="background:rgba(30,41,59,0.5); border-radius:12px; padding:16px; border:1px solid rgba(99,102,241,0.1);">' +
       '<div style="font-size:13px; font-weight:700; margin-bottom:8px; color:var(--text-primary);">📈 人口 × 年間転換世帯数</div>' +
-      '<canvas id="chart-pop-conv" height="200"></canvas></div>' +
+      '<div style="position:relative; height:220px;"><canvas id="chart-pop-conv"></canvas></div></div>' +
       '<div style="background:rgba(30,41,59,0.5); border-radius:12px; padding:16px; border:1px solid rgba(99,102,241,0.1);">' +
       '<div style="font-size:13px; font-weight:700; margin-bottom:8px; color:var(--text-primary);">🏗️ 着工戸数 × 競合数</div>' +
-      '<canvas id="chart-con-comp" height="200"></canvas></div>' +
+      '<div style="position:relative; height:220px;"><canvas id="chart-con-comp"></canvas></div></div>' +
       '</div>';
 
     // --- AIチャンスランキング ---
