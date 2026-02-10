@@ -914,52 +914,6 @@ function renderResults(data) {
     }
   }
 
-  // デバッグ情報セクション
-  var dbg = _crawlDebugInfo || {};
-  html += '<div class="result-card" style="border: 1px solid rgba(99,102,241,0.2);">' +
-    '<div class="result-card__header">' +
-    '<div class="result-card__icon">🔍</div>' +
-    '<div><div class="result-card__title">クローリング詳細</div>' +
-    '<div class="result-card__subtitle">デバッグ情報</div></div></div>' +
-    '<div class="result-card__body">';
-
-  // 取得ページ一覧
-  html += '<div style="font-size:13px; font-weight:700; margin-bottom:6px;">📄 取得ページ一覧</div>';
-  if (dbg.pages && dbg.pages.length > 0) {
-    dbg.pages.forEach(function(p, i) {
-      var statusIcon = p.status === 'OK' ? '✅' : '❌';
-      html += '<div style="font-size:11px; margin-bottom:3px; color:var(--text-secondary);">' +
-        statusIcon + ' [' + (i+1) + '] ' + escapeHtml(p.text || 'トップ') + ' <span style="color:var(--accent-blue);">' + escapeHtml(p.url).slice(0, 60) + '</span> (' + p.size + 'B)</div>';
-    });
-  } else {
-    html += '<div style="font-size:11px; color:#f87171;">ページ取得なし</div>';
-  }
-
-  // スコア付きリンク一覧
-  html += '<div style="font-size:13px; font-weight:700; margin-top:12px; margin-bottom:6px;">🔗 検出リンク（スコア順）</div>';
-  if (dbg.scoredLinks && dbg.scoredLinks.length > 0) {
-    dbg.scoredLinks.forEach(function(l, i) {
-      html += '<div style="font-size:11px; margin-bottom:2px; color:var(--text-secondary);">' +
-        '[' + l.score + '点] ' + escapeHtml(l.text) + ' → ' + escapeHtml(l.url).slice(0, 60) + '</div>';
-    });
-  } else {
-    html += '<div style="font-size:11px; color:#f87171;">スコア付きリンクなし（リンク抽出に問題あり）</div>';
-  }
-
-  // 検出住所一覧
-  var addrs = data.extracted_addresses || [];
-  html += '<div style="font-size:13px; font-weight:700; margin-top:12px; margin-bottom:6px;">📍 検出住所 (' + addrs.length + '件)</div>';
-  if (addrs.length > 0) {
-    addrs.forEach(function(a, i) {
-      html += '<div style="font-size:11px; margin-bottom:2px; color:var(--text-secondary);">' +
-        '[' + (i+1) + '] ' + escapeHtml(a.zip) + ' ' + escapeHtml(a.address) +
-        (a.tel ? ' TEL:' + escapeHtml(a.tel) : '') + '</div>';
-    });
-  } else {
-    html += '<div style="font-size:11px; color:#f87171;">住所検出なし</div>';
-  }
-
-  html += '</div></div>';
 
   resultsContent.innerHTML = html;
 }
