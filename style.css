@@ -225,18 +225,21 @@ body {
    ======================================== */
 .hero__character-wrap {
   position: absolute;
-  right: -20px;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 3;
+  right: -5%;
+  bottom: -80px;
+  z-index: 0; /* コンテンツの裏に回すか、あるいは邪魔にならないように */
   pointer-events: none;
+  display: flex;
+  align-items: flex-end;
 }
 
 .hero__character {
-  width: 220px;
+  width: 400px;
+  max-width: 40vw;
   height: auto;
-  filter: drop-shadow(0 20px 40px rgba(0,0,0,0.3));
-  opacity: 0.85;
+  filter: drop-shadow(-20px 0 40px rgba(0,0,0,0.3));
+  opacity: 1;
+  mask-image: linear-gradient(to bottom, black 85%, transparent 100%);
 }
 
 /* ========================================
