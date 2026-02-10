@@ -547,11 +547,16 @@ function buildAnalysisPrompt(url, content) {
     '以下のURLの企業について分析してください。\n\n' +
     'URL: ' + url + '\n' +
     contentSection + '\n\n' +
+    '重要: 住所は必ずWebサイトの情報から特定してください。会社概要ページやフッターに記載があります。\n' +
+    '複数の事業所がある場合、本社の住所を"address"に、他の拠点は"branches"にリストしてください。\n\n' +
     '以下のJSON形式で回答してください。マークダウンのコードブロックで囲まず、純粋JSONのみ返してください:\n' +
     '{\n' +
     '  "company": {\n' +
     '    "name": "企業名",\n' +
-    '    "address": "所在地（住所）",\n' +
+    '    "address": "本社の住所（〒XXX-XXXX 都道府県市区町村以降）",\n' +
+    '    "branches": [\n' +
+    '      {"name": "支店名", "address": "住所"}\n' +
+    '    ],\n' +
     '    "business_type": "事業内容（簡潔に）",\n' +
     '    "main_services": "主力サービス・商品",\n' +
     '    "is_real_estate": true,\n' +
@@ -560,8 +565,8 @@ function buildAnalysisPrompt(url, content) {
     '    "keywords": ["キーワード1", "キーワード2", "キーワード3"]\n' +
     '  },\n' +
     '  "location": {\n' +
-    '    "prefecture": "都道府県",\n' +
-    '    "city": "市区町村"\n' +
+    '    "prefecture": "本社の都道府県",\n' +
+    '    "city": "本社の市区町村"\n' +
     '  }\n' +
     '}';
 }
@@ -675,11 +680,23 @@ function renderResults(data) {
     '<div class="result-card__body">' +
     '<table class="data-table">' +
     '<tr><th>企業名</th><td>' + escapeHtml(company.name || '—') + '</td></tr>' +
-    '<tr><th>所在地</th><td>' + escapeHtml(company.address || '—') + '</td></tr>' +
+    '<tr><th>本社所在地</th><td>' + escapeHtml(company.address || '—') + '</td></tr>' +
     '<tr><th>事業内容</th><td>' + escapeHtml(company.business_type || '—') + '</td></tr>' +
     '<tr><th>主力サービス</th><td>' + escapeHtml(company.main_services || '—') + '</td></tr>' +
     '<tr><th>不動産事業</th><td>' + (company.is_real_estate ? '<span class="highlight--green">✅ 該当</span>' : '❌ 非該当') + '</td></tr>' +
     '</table>';
+
+  // Branches
+  if (company.branches && company.branches.length > 0) {
+    html += '<div style="margin-top:12px; padding:12px 16px; background:rgba(99,102,241,0.08); border-radius:10px; border:1px solid rgba(99,102,241,0.15);">' +
+      '<div style="font-size:13px; font-weight:700; color:var(--accent-blue); margin-bottom:8px;">📍 事業所一覧</div>';
+    company.branches.forEach(function(b) {
+      html += '<div style="font-size:12px; color:var(--text-secondary); margin-bottom:4px;">' +
+        '<span style="font-weight:600; color:var(--text-primary);">' + escapeHtml(b.name || '') + '</span> ' +
+        escapeHtml(b.address || '') + '</div>';
+    });
+    html += '</div>';
+  }
 
   if (company.strengths) {
     html += '<div class="summary-box" style="margin-top:16px"><div class="summary-box__title">💪 強み・特徴</div><div class="summary-box__text">' + escapeHtml(company.strengths) + '</div></div>';
