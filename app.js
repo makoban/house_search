@@ -1,13 +1,18 @@
 // ========================================
-// 不動産市場把握AI v2.6 - Frontend Only
+// 不動産市場把握AI v2.7 - Frontend Only
 // ブラウザから直接Gemini API + e-Stat APIを呼び出す
 // ========================================
 
 var GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
-var CORS_PROXY = 'https://api.allorigins.win/raw?url=';
+var CORS_PROXIES = [
+  { name: 'corsproxy.io', build: function(u) { return 'https://corsproxy.io/?' + encodeURIComponent(u); } },
+  { name: 'allorigins', build: function(u) { return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u); } },
+  { name: 'codetabs', build: function(u) { return 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u); } }
+];
 var ESTAT_API_BASE = 'https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData';
 var _crawledAddresses = [];
 var _crawlDebugInfo = { pages: [], scoredLinks: [], addresses: [] };
+var _activeProxy = '';
 
 // ---- Prefecture Codes ----
 var PREFECTURE_CODES = {
@@ -283,16 +288,24 @@ var IMPORTANT_PATH_KEYWORDS = [
 ];
 
 async function fetchSinglePage(url) {
-  try {
-    var proxyUrl = CORS_PROXY + encodeURIComponent(url);
-    var res = await fetch(proxyUrl, { signal: AbortSignal.timeout(30000) });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    var html = await res.text();
-    return html;
-  } catch (e) {
-    console.warn('[Fetch] Could not fetch ' + url + ': ' + e.message);
-    return null;
+  for (var p = 0; p < CORS_PROXIES.length; p++) {
+    var proxy = CORS_PROXIES[p];
+    try {
+      var proxyUrl = proxy.build(url);
+      var res = await fetch(proxyUrl, { signal: AbortSignal.timeout(20000) });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var html = await res.text();
+      if (html && html.length > 100) {
+        _activeProxy = proxy.name;
+        return html;
+      }
+    } catch (e) {
+      console.warn('[Fetch/' + proxy.name + '] Failed: ' + url + ' - ' + e.message);
+      addLog('  プロキシ ' + proxy.name + ' 失敗、次を試行...', 'info');
+    }
   }
+  console.warn('[Fetch] All proxies failed for: ' + url);
+  return null;
 }
 
 function extractTextFromHtml(html) {
@@ -374,7 +387,7 @@ async function crawlSite(url) {
   addLog('トップページ取得完了 (' + topText.length + '文字)', 'success');
 
   // デバッグ情報初期化
-  _crawlDebugInfo = { pages: [{ url: url, status: 'OK', size: topHtml.length }], scoredLinks: [], addresses: [] };
+  _crawlDebugInfo = { pages: [{ url: url, status: 'OK (' + _activeProxy + ')', size: topHtml.length, text: 'トップページ' }], scoredLinks: [], addresses: [] };
 
   // 全HTMLソースから住所を抽出（HTMLのままでマッチ）
   var allHtmlSources = [topHtml];
