@@ -1020,8 +1020,130 @@ function renderResults(data) {
     html += '</div></div>';
   }
 
-  // Market Data Cards (タブ式マルチエリア)
+  // ========== 全社サマリーダッシュボード ==========
   var markets = data.markets || [];
+  var cross = data.crossAreaInsight || {};
+  if (markets.length > 0) {
+    html += '<div class="result-card" style="border:2px solid rgba(16,185,129,0.3); background:linear-gradient(135deg,rgba(16,185,129,0.05),rgba(59,130,246,0.05));">' +
+      '<div class="result-card__header">' +
+      '<div class="result-card__icon">📊</div>' +
+      '<div><div class="result-card__title">全社エリア比較サマリー</div>' +
+      '<div class="result-card__subtitle">' + markets.length + 'エリアの横断比較 — 経営層向けダッシュボード</div></div></div>' +
+      '<div class="result-card__body">';
+
+    // --- 比較テーブル ---
+    html += '<div style="overflow-x:auto; margin-bottom:20px;">' +
+      '<table class="data-table" style="font-size:11px; width:100%; min-width:700px;">' +
+      '<thead><tr style="background:rgba(99,102,241,0.1);">' +
+      '<th style="text-align:left;">エリア</th>' +
+      '<th>人口</th><th>世帯数</th><th>着工(戸/年)</th>' +
+      '<th>持家率</th><th>空家率</th><th>坪単価(万)</th>' +
+      '<th>住宅平均(万)</th><th>競合数</th><th>年間転換</th>' +
+      '</tr></thead><tbody>';
+
+    var totPop=0,totHH=0,totCon=0,totOwn=0,totVac=0,totLand=0,totPrice=0,totComp=0,totConv=0,cnt=0;
+    markets.forEach(function(mkt) {
+      var d = mkt.data || {};
+      var pop = (d.population||{}).total_population||0;
+      var hh = (d.population||{}).households||0;
+      var con = (d.construction||{}).total||0;
+      var own = (d.housing||{}).ownership_rate||0;
+      var vac = (d.housing||{}).vacancy_rate||0;
+      var landRaw = (d.land_price||{}).residential_tsubo||0;
+      var land = landRaw > 10000 ? Math.round(landRaw/10000) : landRaw;
+      var priceRaw = (d.home_prices||{}).avg_price||0;
+      var price = priceRaw > 50000 ? Math.round(priceRaw/10000) : priceRaw;
+      var comp = (d.competition||{}).total_companies||0;
+      var conv = (d.potential||{}).annual_converts||0;
+      totPop+=pop;totHH+=hh;totCon+=con;totOwn+=own;totVac+=vac;totLand+=land;totPrice+=price;totComp+=comp;totConv+=conv;cnt++;
+      var icon = (mkt.area && mkt.area.isHQ) ? '🏢' : '📍';
+      var label = mkt.area ? mkt.area.label : 'エリア';
+      html += '<tr>' +
+        '<td style="font-weight:600; white-space:nowrap;">' + icon + ' ' + escapeHtml(label) + '</td>' +
+        '<td style="text-align:right;">' + formatNumber(pop) + '</td>' +
+        '<td style="text-align:right;">' + formatNumber(hh) + '</td>' +
+        '<td style="text-align:right;">' + formatNumber(con) + '</td>' +
+        '<td style="text-align:right;">' + own + '%</td>' +
+        '<td style="text-align:right;">' + vac + '%</td>' +
+        '<td style="text-align:right;">' + formatNumber(land) + '</td>' +
+        '<td style="text-align:right;">' + formatNumber(price) + '</td>' +
+        '<td style="text-align:right;">' + comp + '</td>' +
+        '<td style="text-align:right; font-weight:700; color:#10b981;">' + formatNumber(conv) + '</td>' +
+        '</tr>';
+    });
+    var n = cnt||1;
+    html += '<tr style="background:rgba(16,185,129,0.08); font-weight:700;">' +
+      '<td>合計</td>' +
+      '<td style="text-align:right;">' + formatNumber(totPop) + '</td>' +
+      '<td style="text-align:right;">' + formatNumber(totHH) + '</td>' +
+      '<td style="text-align:right;">' + formatNumber(totCon) + '</td>' +
+      '<td></td><td></td><td></td><td></td>' +
+      '<td style="text-align:right;">' + totComp + '</td>' +
+      '<td style="text-align:right; color:#10b981;">' + formatNumber(totConv) + '</td></tr>';
+    html += '<tr style="background:rgba(59,130,246,0.08); font-style:italic;">' +
+      '<td>平均</td>' +
+      '<td style="text-align:right;">' + formatNumber(Math.round(totPop/n)) + '</td>' +
+      '<td style="text-align:right;">' + formatNumber(Math.round(totHH/n)) + '</td>' +
+      '<td style="text-align:right;">' + formatNumber(Math.round(totCon/n)) + '</td>' +
+      '<td style="text-align:right;">' + (totOwn/n).toFixed(1) + '%</td>' +
+      '<td style="text-align:right;">' + (totVac/n).toFixed(1) + '%</td>' +
+      '<td style="text-align:right;">' + formatNumber(Math.round(totLand/n)) + '</td>' +
+      '<td style="text-align:right;">' + formatNumber(Math.round(totPrice/n)) + '</td>' +
+      '<td style="text-align:right;">' + Math.round(totComp/n) + '</td>' +
+      '<td style="text-align:right;">' + formatNumber(Math.round(totConv/n)) + '</td></tr>';
+    html += '</tbody></table></div>';
+
+    // --- Chart.jsグラフ用Canvas ---
+    html += '<div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px;">' +
+      '<div style="background:rgba(30,41,59,0.5); border-radius:12px; padding:16px; border:1px solid rgba(99,102,241,0.1);">' +
+      '<div style="font-size:13px; font-weight:700; margin-bottom:8px; color:var(--text-primary);">📈 人口 × 年間転換世帯数</div>' +
+      '<canvas id="chart-pop-conv" height="200"></canvas></div>' +
+      '<div style="background:rgba(30,41,59,0.5); border-radius:12px; padding:16px; border:1px solid rgba(99,102,241,0.1);">' +
+      '<div style="font-size:13px; font-weight:700; margin-bottom:8px; color:var(--text-primary);">🏗️ 着工戸数 × 競合数</div>' +
+      '<canvas id="chart-con-comp" height="200"></canvas></div>' +
+      '</div>';
+
+    // --- AIチャンスランキング ---
+    if (cross.opportunity_ranking && cross.opportunity_ranking.length > 0) {
+      html += '<div style="margin-bottom:20px;">' +
+        '<div style="font-size:15px; font-weight:700; margin-bottom:12px; color:var(--text-primary);">🏆 AIチャンスランキング</div>';
+      cross.opportunity_ranking.forEach(function(r, i) {
+        var barW = (r.score || 50);
+        var colors = ['#10b981','#3b82f6','#f59e0b','#8b5cf6','#ef4444','#06b6d4'];
+        var c = colors[i % colors.length];
+        html += '<div style="margin-bottom:10px; padding:10px 14px; background:rgba(30,41,59,0.4); border-radius:10px; border:1px solid rgba(99,102,241,0.08);">' +
+          '<div style="display:flex; align-items:center; gap:10px; margin-bottom:6px;">' +
+          '<span style="font-size:18px; font-weight:800; color:' + c + ';">#' + (r.rank||i+1) + '</span>' +
+          '<span style="font-size:14px; font-weight:700; color:var(--text-primary);">' + escapeHtml(r.area||'') + '</span>' +
+          '<span style="margin-left:auto; font-size:20px; font-weight:800; color:' + c + ';">' + (r.score||0) + '<span style="font-size:11px; color:var(--text-muted);">点</span></span></div>' +
+          '<div style="background:rgba(255,255,255,0.05); border-radius:6px; height:8px; overflow:hidden;">' +
+          '<div style="width:' + barW + '%; height:100%; background:' + c + '; border-radius:6px; transition:width 1s;"></div></div>' +
+          '<div style="font-size:11px; color:var(--text-secondary); margin-top:6px;">' + escapeHtml(r.reason||'') + '</div></div>';
+      });
+      html += '</div>';
+    }
+
+    // --- 戦略提言カードグリッド ---
+    var insightCards = [];
+    if (cross.strategic_summary) insightCards.push({icon:'🎯',title:'経営戦略サマリー',text:cross.strategic_summary,color:'#6366f1'});
+    if (cross.sales_advice) insightCards.push({icon:'💼',title:'営業チームへのアドバイス',text:cross.sales_advice,color:'#10b981'});
+    if (cross.growth_areas) insightCards.push({icon:'📈',title:'成長が見込めるエリア',text:cross.growth_areas,color:'#3b82f6'});
+    if (cross.risk_areas) insightCards.push({icon:'⚠️',title:'リスク・注意エリア',text:cross.risk_areas,color:'#f59e0b'});
+
+    if (insightCards.length > 0) {
+      html += '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:12px; margin-bottom:12px;">';
+      insightCards.forEach(function(card) {
+        html += '<div style="background:rgba(30,41,59,0.5); border-radius:12px; padding:16px; border-left:4px solid ' + card.color + ';">' +
+          '<div style="font-size:13px; font-weight:700; margin-bottom:8px; color:' + card.color + ';">' + card.icon + ' ' + card.title + '</div>' +
+          '<div style="font-size:12px; color:var(--text-secondary); line-height:1.6;">' + escapeHtml(card.text) + '</div></div>';
+      });
+      html += '</div>';
+    }
+
+    html += '</div></div>'; // result-card end
+  }
+
+  // Market Data Cards (タブ式マルチエリア)
   if (markets.length > 0) {
     // タブボタン
     html += '<div class="result-card" style="border: 1px solid rgba(99,102,241,0.15); padding: 0;">' +
@@ -1162,6 +1284,72 @@ function renderResults(data) {
 
 
   resultsContent.innerHTML = html;
+
+  // Chart.jsでグラフ描画
+  if (markets.length > 0 && typeof Chart !== 'undefined') {
+    setTimeout(function() { renderSummaryCharts(markets); }, 100);
+  }
+}
+
+// ---- Summary Charts (Chart.js) ----
+function renderSummaryCharts(markets) {
+  var labels = markets.map(function(mkt) {
+    return mkt.area ? mkt.area.label : 'エリア';
+  });
+  var popData = markets.map(function(mkt) { return ((mkt.data||{}).population||{}).total_population||0; });
+  var convData = markets.map(function(mkt) { return ((mkt.data||{}).potential||{}).annual_converts||0; });
+  var conData = markets.map(function(mkt) { return ((mkt.data||{}).construction||{}).total||0; });
+  var compData = markets.map(function(mkt) { return ((mkt.data||{}).competition||{}).total_companies||0; });
+
+  var chartFont = { color: '#94a3b8', family: 'system-ui' };
+  var gridColor = 'rgba(148,163,184,0.1)';
+
+  // Chart 1: 人口 × 年間転換
+  var ctx1 = document.getElementById('chart-pop-conv');
+  if (ctx1) {
+    new Chart(ctx1, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [
+          { label: '人口', data: popData, backgroundColor: 'rgba(99,102,241,0.6)', borderRadius: 6, yAxisID: 'y', order: 2 },
+          { label: '年間転換(世帯)', data: convData, type: 'line', borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.15)', pointBackgroundColor: '#10b981', pointRadius: 5, borderWidth: 3, fill: true, yAxisID: 'y1', order: 1 }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: chartFont.color, font: { size: 11 } } } },
+        scales: {
+          x: { ticks: { color: chartFont.color, font: { size: 10 } }, grid: { color: gridColor } },
+          y: { position: 'left', ticks: { color: chartFont.color, font: { size: 10 }, callback: function(v) { return v >= 10000 ? (v/10000).toFixed(0)+'万' : v; } }, grid: { color: gridColor } },
+          y1: { position: 'right', ticks: { color: '#10b981', font: { size: 10 } }, grid: { display: false } }
+        }
+      }
+    });
+  }
+
+  // Chart 2: 着工 × 競合数
+  var ctx2 = document.getElementById('chart-con-comp');
+  if (ctx2) {
+    new Chart(ctx2, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [
+          { label: '着工(戸/年)', data: conData, backgroundColor: 'rgba(245,158,11,0.6)', borderRadius: 6 },
+          { label: '競合数', data: compData, backgroundColor: 'rgba(244,63,94,0.6)', borderRadius: 6 }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: chartFont.color, font: { size: 11 } } } },
+        scales: {
+          x: { ticks: { color: chartFont.color, font: { size: 10 } }, grid: { color: gridColor } },
+          y: { ticks: { color: chartFont.color, font: { size: 10 } }, grid: { color: gridColor } }
+        }
+      }
+    });
+  }
 }
 
 // ---- Area Tab Switching ----
