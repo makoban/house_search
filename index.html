@@ -47,10 +47,20 @@
           </p>
         </div>
 
+        <div class="form-group">
+          <label for="estat-key">e-Stat App ID <span class="badge-optional">任意</span></label>
+          <input type="text" id="estat-key" placeholder="アプリケーションID..." autocomplete="off">
+          <p class="form-help">
+            <a href="https://www.e-stat.go.jp/api/" target="_blank" class="guide-link">→ e-Stat APIで無料取得</a>
+            <br><span style="color: var(--text-muted); font-size: 12px;">設定すると政府統計の実データを使用します（より正確）</span>
+          </p>
+        </div>
+
         <div class="settings-status" id="settings-status">
           <div class="settings-status__title">ステータス</div>
           <div id="status-content"></div>
         </div>
+
       </div>
       <div class="modal__footer">
         <button id="save-settings-btn" class="btn-primary">保存する</button>

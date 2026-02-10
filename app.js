@@ -1,41 +1,61 @@
 // ========================================
-// 不動産市場把握AI v2.0 - Frontend Only
-// ブラウザから直接Gemini APIを呼び出す
+// 不動産市場把握AI v2.1 - Frontend Only
+// ブラウザから直接Gemini API + e-Stat APIを呼び出す
 // ========================================
 
-const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
-const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
+var GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+var CORS_PROXY = 'https://api.allorigins.win/raw?url=';
+var ESTAT_API_BASE = 'https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData';
+
+// ---- Prefecture Codes ----
+var PREFECTURE_CODES = {
+  '北海道':'01','青森県':'02','岩手県':'03','宮城県':'04','秋田県':'05',
+  '山形県':'06','福島県':'07','茨城県':'08','栃木県':'09','群馬県':'10',
+  '埼玉県':'11','千葉県':'12','東京都':'13','神奈川県':'14','新潟県':'15',
+  '富山県':'16','石川県':'17','福井県':'18','山梨県':'19','長野県':'20',
+  '岐阜県':'21','静岡県':'22','愛知県':'23','三重県':'24','滋賀県':'25',
+  '京都府':'26','大阪府':'27','兵庫県':'28','奈良県':'29','和歌山県':'30',
+  '鳥取県':'31','島根県':'32','岡山県':'33','広島県':'34','山口県':'35',
+  '徳島県':'36','香川県':'37','愛媛県':'38','高知県':'39','福岡県':'40',
+  '佐賀県':'41','長崎県':'42','熊本県':'43','大分県':'44','宮崎県':'45',
+  '鹿児島県':'46','沖縄県':'47'
+};
 
 // ---- State ----
-let analysisData = null;
+var analysisData = null;
 
 // ---- DOM References ----
-const urlInput = document.getElementById('url-input');
-const analyzeBtn = document.getElementById('analyze-btn');
-const errorMsg = document.getElementById('error-msg');
-const progressSection = document.getElementById('progress-section');
-const resultsSection = document.getElementById('results-section');
-const resultsContent = document.getElementById('results-content');
-const progressLogContent = document.getElementById('progress-log-content');
+var urlInput = document.getElementById('url-input');
+var analyzeBtn = document.getElementById('analyze-btn');
+var errorMsg = document.getElementById('error-msg');
+var progressSection = document.getElementById('progress-section');
+var resultsSection = document.getElementById('results-section');
+var resultsContent = document.getElementById('results-content');
+var progressLogContent = document.getElementById('progress-log-content');
 
 // ---- Settings Modal ----
-const settingsModal = document.getElementById('settings-modal');
-const settingsBtn = document.getElementById('settings-btn');
-const closeSettingsBtn = document.querySelector('.modal__close');
-const saveSettingsBtn = document.getElementById('save-settings-btn');
-const geminiKeyInput = document.getElementById('gemini-key');
+var settingsModal = document.getElementById('settings-modal');
+var settingsBtn = document.getElementById('settings-btn');
+var closeSettingsBtn = document.querySelector('.modal__close');
+var saveSettingsBtn = document.getElementById('save-settings-btn');
+var geminiKeyInput = document.getElementById('gemini-key');
+var estatKeyInput = document.getElementById('estat-key');
 
-// Load saved key
+// Load saved keys
 if (geminiKeyInput) {
   geminiKeyInput.value = localStorage.getItem('gemini_api_key') || '';
-  updateStatusDisplay();
 }
+if (estatKeyInput) {
+  estatKeyInput.value = localStorage.getItem('estat_app_id') || '';
+}
+updateStatusDisplay();
 
 // Event Listeners
 if (settingsBtn) {
   settingsBtn.addEventListener('click', function() {
     settingsModal.classList.add('active');
     geminiKeyInput.value = localStorage.getItem('gemini_api_key') || '';
+    if (estatKeyInput) estatKeyInput.value = localStorage.getItem('estat_app_id') || '';
     updateStatusDisplay();
   });
 }
@@ -48,19 +68,27 @@ if (closeSettingsBtn) {
 
 if (saveSettingsBtn) {
   saveSettingsBtn.addEventListener('click', function() {
-    var key = geminiKeyInput.value.trim();
-    if (key) {
-      localStorage.setItem('gemini_api_key', key);
-      updateStatusDisplay();
-      saveSettingsBtn.textContent = '✅ 保存しました!';
-      setTimeout(function() {
-        saveSettingsBtn.textContent = '保存する';
-        settingsModal.classList.remove('active');
-      }, 1000);
+    var geminiKey = geminiKeyInput.value.trim();
+    var estatKey = estatKeyInput ? estatKeyInput.value.trim() : '';
+
+    if (geminiKey) {
+      localStorage.setItem('gemini_api_key', geminiKey);
     } else {
       localStorage.removeItem('gemini_api_key');
-      updateStatusDisplay();
     }
+
+    if (estatKey) {
+      localStorage.setItem('estat_app_id', estatKey);
+    } else {
+      localStorage.removeItem('estat_app_id');
+    }
+
+    updateStatusDisplay();
+    saveSettingsBtn.textContent = '✅ 保存しました!';
+    setTimeout(function() {
+      saveSettingsBtn.textContent = '保存する';
+      settingsModal.classList.remove('active');
+    }, 1000);
   });
 }
 
@@ -73,10 +101,24 @@ if (settingsModal) {
 function updateStatusDisplay() {
   var statusEl = document.getElementById('status-content');
   if (!statusEl) return;
-  var key = localStorage.getItem('gemini_api_key');
-  statusEl.innerHTML = key
-    ? '<div class="status-item ok">✅ Gemini API Key 設定済</div><div class="status-item ok">🤖 AI Model: Gemini 2.0 Flash</div>'
-    : '<div class="status-item ng">❌ Gemini API Key 未設定</div>';
+  var geminiKey = localStorage.getItem('gemini_api_key');
+  var estatKey = localStorage.getItem('estat_app_id');
+  var html = '';
+
+  if (geminiKey) {
+    html += '<div class="status-item ok">✅ Gemini API Key 設定済</div>';
+  } else {
+    html += '<div class="status-item ng">❌ Gemini API Key 未設定</div>';
+  }
+
+  if (estatKey) {
+    html += '<div class="status-item ok">✅ e-Stat App ID 設定済（政府統計使用）</div>';
+  } else {
+    html += '<div class="status-item warn">⚠️ e-Stat App ID 未設定（AI推計モード）</div>';
+  }
+
+  html += '<div class="status-item ok">🤖 AI Model: Gemini 2.0 Flash</div>';
+  statusEl.innerHTML = html;
 }
 
 // ---- Gemini API Direct Call ----
@@ -108,6 +150,126 @@ async function callGemini(prompt) {
   var data = await res.json();
   var text = (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text) || '';
   return text;
+}
+
+// ---- e-Stat API ----
+async function fetchEstatPopulation(prefecture, city) {
+  var appId = localStorage.getItem('estat_app_id');
+  if (!appId) return null;
+
+  var prefCode = PREFECTURE_CODES[prefecture];
+  if (!prefCode) return null;
+
+  addLog('e-Stat APIから人口データを取得中...', 'info');
+
+  try {
+    // 国勢調査 人口等基本集計 (statsDataId: 0003448233)
+    var url = ESTAT_API_BASE + '?appId=' + appId +
+      '&statsDataId=0003448233' +
+      '&cdArea=' + prefCode + '000' +
+      '&limit=100';
+
+    var res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    if (!res.ok) throw new Error('e-Stat API HTTP ' + res.status);
+    var data = await res.json();
+
+    var result = data.GET_STATS_DATA && data.GET_STATS_DATA.STATISTICAL_DATA;
+    if (!result || !result.DATA_INF || !result.DATA_INF.VALUE) {
+      // 都道府県コードが合わない場合、都道府県レベルのデータを試行
+      url = ESTAT_API_BASE + '?appId=' + appId +
+        '&statsDataId=0003448233' +
+        '&cdArea=' + prefCode +
+        '&limit=100';
+      res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+      data = await res.json();
+      result = data.GET_STATS_DATA && data.GET_STATS_DATA.STATISTICAL_DATA;
+    }
+
+    if (!result || !result.DATA_INF || !result.DATA_INF.VALUE) {
+      addLog('e-Stat: 該当データがありません。AI推計に切り替えます。', 'info');
+      return null;
+    }
+
+    var values = result.DATA_INF.VALUE;
+    var population = null;
+    var households = null;
+
+    // 値を抽出
+    for (var i = 0; i < values.length; i++) {
+      var v = values[i];
+      var val = parseInt(v.$, 10);
+      if (isNaN(val)) continue;
+
+      // 総人口
+      if (v['@tab'] === '020' || (v['@cat01'] && v['@cat01'].indexOf('0010') >= 0)) {
+        if (!population || val > 100) population = val;
+      }
+      // 世帯数
+      if (v['@tab'] === '040' || (v['@cat01'] && v['@cat01'].indexOf('0020') >= 0)) {
+        if (!households || val > 100) households = val;
+      }
+    }
+
+    if (population) {
+      addLog('e-Stat: 人口データ取得成功 (' + formatNumber(population) + '人)', 'success');
+      return {
+        total_population: population,
+        households: households || Math.round(population / 2.3),
+        source: 'e-Stat 国勢調査',
+        from_estat: true
+      };
+    }
+
+    return null;
+  } catch (e) {
+    console.warn('[e-Stat] Error:', e);
+    addLog('e-Stat API接続エラー: ' + e.message + '。AI推計に切り替えます。', 'info');
+    return null;
+  }
+}
+
+async function fetchEstatHousing(prefecture) {
+  var appId = localStorage.getItem('estat_app_id');
+  if (!appId) return null;
+
+  var prefCode = PREFECTURE_CODES[prefecture];
+  if (!prefCode) return null;
+
+  try {
+    // 住宅・土地統計調査 (statsDataId: 0003445078)
+    var url = ESTAT_API_BASE + '?appId=' + appId +
+      '&statsDataId=0003445078' +
+      '&cdArea=' + prefCode +
+      '&limit=50';
+
+    var res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    if (!res.ok) return null;
+    var data = await res.json();
+
+    var result = data.GET_STATS_DATA && data.GET_STATS_DATA.STATISTICAL_DATA;
+    if (!result || !result.DATA_INF || !result.DATA_INF.VALUE) return null;
+
+    var values = result.DATA_INF.VALUE;
+    var ownershipCount = 0;
+    var totalHousing = 0;
+
+    for (var i = 0; i < values.length; i++) {
+      var v = values[i];
+      var val = parseInt(v.$, 10);
+      if (isNaN(val)) continue;
+      if (val > totalHousing) totalHousing = val;
+    }
+
+    if (totalHousing > 0) {
+      addLog('e-Stat: 住宅統計データ取得成功', 'success');
+      return { total_housing: totalHousing, source: 'e-Stat 住宅・土地統計', from_estat: true };
+    }
+
+    return null;
+  } catch (e) {
+    console.warn('[e-Stat Housing] Error:', e);
+    return null;
+  }
 }
 
 // ---- Fetch Page via CORS Proxy ----
@@ -166,6 +328,13 @@ async function startAnalysis() {
 
   addLog('分析を開始します...', 'info');
 
+  var estatAppId = localStorage.getItem('estat_app_id');
+  if (estatAppId) {
+    addLog('e-Stat App ID検出 → 政府統計データを優先使用', 'info');
+  } else {
+    addLog('e-Stat未設定 → AI推計モードで実行', 'info');
+  }
+
   try {
     // Step 1: Fetch page content
     activateStep('step-crawl');
@@ -190,14 +359,35 @@ async function startAnalysis() {
     addLog('分析完了: ' + ((analysis.company && analysis.company.name) || '企業情報取得'), 'success');
     completeStep('step-analyze');
 
-    // Step 3: Market Data via Gemini
+    // Step 3: Market Data
     activateStep('step-market');
     var location = analysis.location || {};
-    addLog('市場データを生成中: ' + (location.prefecture || '') + ' ' + (location.city || '') + '...');
+    var prefecture = location.prefecture || '';
+    var city = location.city || '';
+    addLog('市場データを収集中: ' + prefecture + ' ' + city + '...');
 
-    var marketPrompt = buildMarketPrompt(analysis);
+    // e-Stat data (if configured)
+    var estatPopulation = null;
+    var estatHousing = null;
+
+    if (estatAppId && prefecture) {
+      estatPopulation = await fetchEstatPopulation(prefecture, city);
+      estatHousing = await fetchEstatHousing(prefecture);
+    }
+
+    // Build market prompt (with e-Stat data if available)
+    var marketPrompt = buildMarketPrompt(analysis, estatPopulation, estatHousing);
     var marketRaw = await callGemini(marketPrompt);
     var marketData = parseJSON(marketRaw);
+
+    // Merge e-Stat data into market data (override AI estimates with real data)
+    if (estatPopulation && estatPopulation.from_estat) {
+      if (!marketData.population) marketData.population = {};
+      marketData.population.total_population = estatPopulation.total_population;
+      marketData.population.households = estatPopulation.households;
+      marketData.population.source = estatPopulation.source;
+    }
+
     addLog('市場データの生成完了', 'success');
     completeStep('step-market');
 
@@ -211,7 +401,8 @@ async function startAnalysis() {
       company: analysis.company || {},
       location: analysis.location || {},
       market: marketData,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      data_source: estatAppId ? 'e-Stat + Gemini' : 'Gemini推計'
     };
 
     renderResults(analysisData);
@@ -260,16 +451,25 @@ function buildAnalysisPrompt(url, content) {
     '}';
 }
 
-function buildMarketPrompt(analysis) {
+function buildMarketPrompt(analysis, estatPop, estatHousing) {
   var loc = analysis.location || {};
   var company = analysis.company || {};
   var pref = loc.prefecture || '不明';
   var city = loc.city || '';
 
+  var estatInfo = '';
+  if (estatPop && estatPop.from_estat) {
+    estatInfo += '\n\n【参考: e-Stat政府統計データ】\n' +
+      '・総人口: ' + formatNumber(estatPop.total_population) + '人\n' +
+      '・世帯数: ' + formatNumber(estatPop.households) + '世帯\n' +
+      'これらの実データを基準にして、他の項目も整合性のある値を推定してください。\n';
+  }
+
   return 'あなたは日本の不動産市場データの専門家です。\n' +
     '以下の地域の不動産市場データを、あなたの知識をもとに推定・提供してください。\n\n' +
     '対象エリア: ' + pref + ' ' + city + '\n' +
-    '企業の事業: ' + (company.business_type || '不明') + '\n\n' +
+    '企業の事業: ' + (company.business_type || '不明') + '\n' +
+    estatInfo + '\n' +
     'できる限り正確な数値を提供してください。正確な数値が不明な場合は、合理的な推計値を「推計」と明記して提供してください。\n\n' +
     '以下のJSON形式で回答してください。マークダウンのコードブロックで囲まず、純粋JSONのみ返してください:\n' +
     '{\n' +
@@ -321,7 +521,6 @@ function buildMarketPrompt(analysis) {
 // ---- JSON Parser ----
 function parseJSON(text) {
   var cleaned = text.trim();
-  // Remove markdown code blocks
   var codeBlockStart = /^```(?:json)?\s*\n?/;
   var codeBlockEnd = /\n?```\s*$/;
   if (cleaned.match(codeBlockStart)) {
@@ -345,13 +544,18 @@ function renderResults(data) {
   var market = data.market;
   var html = '';
 
+  // Data Source Badge
+  var sourceBadge = data.data_source === 'e-Stat + Gemini'
+    ? '<span style="background: linear-gradient(135deg, #10b981, #3b82f6); color:#fff; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:700;">📊 e-Stat実データ + AI分析</span>'
+    : '<span style="background: var(--accent-gradient); color:#fff; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:700;">🤖 AI推計モード</span>';
+
   // Company Card
   html += '<div class="result-card result-card--company">' +
     '<div class="result-card__header">' +
     '<div class="result-card__icon">🏢</div>' +
     '<div>' +
     '<div class="result-card__title">' + escapeHtml(company.name || '企業分析') + '</div>' +
-    '<div class="result-card__subtitle">Gemini 2.0 Flash による事業内容分析</div>' +
+    '<div class="result-card__subtitle">Gemini 2.0 Flash による事業内容分析 ' + sourceBadge + '</div>' +
     '</div></div>' +
     '<div class="result-card__body">' +
     '<table class="data-table">' +
@@ -382,9 +586,10 @@ function renderResults(data) {
 
     if (m.population) {
       var pop = m.population;
+      var popSource = pop.source ? ' <span style="font-size:11px; color:var(--text-muted);">(' + escapeHtml(pop.source) + ')</span>' : '';
       html += '<div class="result-card result-card--population">' +
         '<div class="result-card__header"><div class="result-card__icon">👥</div>' +
-        '<div><div class="result-card__title">① 人口・世帯データ</div><div class="result-card__subtitle">' + escapeHtml(areaLabel) + '</div></div></div>' +
+        '<div><div class="result-card__title">① 人口・世帯データ' + popSource + '</div><div class="result-card__subtitle">' + escapeHtml(areaLabel) + '</div></div></div>' +
         '<div class="result-card__body"><div class="stat-grid">' +
         '<div class="stat-box"><div class="stat-box__value">' + formatNumber(pop.total_population) + '</div><div class="stat-box__label">総人口</div></div>' +
         '<div class="stat-box"><div class="stat-box__value">' + formatNumber(pop.households) + '</div><div class="stat-box__label">世帯数</div></div>' +

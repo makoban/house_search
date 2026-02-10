@@ -1338,6 +1338,17 @@ body {
   vertical-align: middle;
 }
 
+.badge-optional {
+  background: var(--accent-green);
+  color: #fff;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: 6px;
+  font-weight: 700;
+  vertical-align: middle;
+}
+
 .form-group input[type="password"],
 .form-group input[type="text"] {
   width: 100%;
