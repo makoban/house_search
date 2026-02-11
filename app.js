@@ -469,9 +469,20 @@ async function crawlSite(url) {
 
   addLog('合計 ' + _crawledPages.filter(function(p) { return p.status === 'OK'; }).length + '/' + (maxSubPages + 1) + ' ページ取得完了', 'success');
 
-  // 全HTMLソースから住所を抽出（グローバルに保存）
-  var allHtmlCombined = allHtmlSources.join('\n');
-  _crawledAddresses = extractAddressesFromHtml(allHtmlCombined);
+  // 全HTMLソースからページごとに住所を抽出（グローバルに保存）
+  var allAddrs = [];
+  var seenZips = {};
+  // トップページから抽出
+  var topAddrs = extractAddressesFromHtml(topHtml, 'トップページ');
+  topAddrs.forEach(function(a) { if (!seenZips[a.zip]) { seenZips[a.zip] = true; allAddrs.push(a); } });
+  // サブページから抽出
+  allHtmlSources.forEach(function(srcHtml, idx) {
+    if (idx === 0) return; // トップは処理済み
+    var pName = (_crawledPages[idx] && _crawledPages[idx].name) || 'ページ' + idx;
+    var pageAddrs = extractAddressesFromHtml(srcHtml, pName);
+    pageAddrs.forEach(function(a) { if (!seenZips[a.zip]) { seenZips[a.zip] = true; allAddrs.push(a); } });
+  });
+  _crawledAddresses = allAddrs;
   addLog('HTMLソースから住所 ' + _crawledAddresses.length + '件を直接検出', _crawledAddresses.length > 0 ? 'success' : 'info');
 
   // 全テキストを結合（上限15000文字）
@@ -481,7 +492,7 @@ async function crawlSite(url) {
 }
 
 // HTMLソースから直接住所を抽出（テキスト変換に依存しない）
-function extractAddressesFromHtml(html) {
+function extractAddressesFromHtml(html, pageName) {
   if (!html) return [];
   var results = [];
   var seen = {};
@@ -521,10 +532,18 @@ function extractAddressesFromHtml(html) {
     if (address.length < 5 || address.length > 100) continue;
     if (!address.match(/[都道府県市区町村郡]/)) continue;
 
+    // 前後30文字のコンテキストを取得
+    var matchPos = m.index;
+    var ctxStart = Math.max(0, matchPos - 40);
+    var ctxEnd = Math.min(plainText.length, matchPos + m[0].length + 40);
+    var context = plainText.slice(ctxStart, ctxEnd).replace(/\s+/g, ' ').trim();
+
     results.push({
       zip: '〒' + zip,
       address: address,
-      tel: tel
+      tel: tel,
+      page: pageName || '',
+      context: context
     });
   }
 
@@ -610,24 +629,46 @@ async function startAnalysis() {
         var companyName = (analysis.company && analysis.company.name) || '';
         var businessType = (analysis.company && analysis.company.business_type) || '';
         var addrList = rawAddresses.map(function(a, i) {
-          return (i+1) + '. 〒' + a.zip.replace('〒','') + ' ' + a.address + (a.tel ? ' TEL:' + a.tel : '');
-        }).join('\n');
+          return (i+1) + '. ' + a.zip + ' ' + a.address +
+            (a.tel ? ' TEL:' + a.tel : '') +
+            '\n   出現ページ: ' + (a.page || '不明') +
+            '\n   前後テキスト: 「' + (a.context || '').slice(0, 80) + '」';
+        }).join('\n\n');
 
-        var filterPrompt = '以下は「' + companyName + '」（' + businessType + '）のWebサイトから抽出された住所リストです。\n\n' +
+        var filterPrompt = '■ 企業名: ' + companyName + '\n' +
+          '■ 業種: ' + businessType + '\n\n' +
+          '以下はこの企業のWebサイトの各ページから抽出された住所一覧です。\n' +
+          '各住所には「出現ページ名」と「前後テキスト」を付記しています。\n\n' +
           addrList + '\n\n' +
-          'この中で、この企業の実際の事業所（本社・支店・営業所・展示場・モデルハウスなど）の住所だけを特定してください。\n' +
-          '施工実績・建売物件・顧客所在地・取引先・無関係な住所は除外してください。\n\n' +
-          'JSON配列で事業所と判定した番号のみ返してください。例: [1, 3, 5]\n' +
-          '全て事業所の場合は全番号を返してください。';
+          '【判定基準】\n' +
+          '✅ 事業所として採用する住所:\n' +
+          '- 本社・支社・支店・営業所・事務所の住所\n' +
+          '- 展示場・モデルハウス・ショールームの住所\n' +
+          '- 「会社概要」「アクセス」「拠点案内」ページに記載された住所\n' +
+          '- ヘッダー/フッターに記載された企業住所\n\n' +
+          '❌ 除外すべき住所:\n' +
+          '- 施工事例・建売物件・分譲地の住所\n' +
+          '- お客様の声・体験談に含まれる住所\n' +
+          '- 取引先・協力会社・銀行・保険会社の住所\n' +
+          '- 免許の登録先（国土交通省等）の住所\n' +
+          '- 求人情報内の勤務地（他社のもの）\n\n' +
+          '以下のJSON形式で回答してください:\n' +
+          '{"offices":[{"no":1,"is_office":true,"reason":"本社住所（会社概要ページ）"},{"no":2,"is_office":false,"reason":"施工事例の物件住所"},...]}';
 
         var filterRaw = await callGemini(filterPrompt);
-        // JSONの配列を抽出
-        var filterMatch = filterRaw.match(/\[[\d\s,]+\]/);
-        if (filterMatch) {
-          var officeIndices = JSON.parse(filterMatch[0]);
-          extractedAddresses = officeIndices.map(function(idx) {
-            return rawAddresses[idx - 1];
-          }).filter(function(a) { return !!a; });
+        // JSONレスポンスをパース
+        var filterResult = parseJSON(filterRaw);
+        if (filterResult && filterResult.offices && filterResult.offices.length > 0) {
+          extractedAddresses = [];
+          filterResult.offices.forEach(function(item) {
+            var idx = item.no - 1;
+            if (item.is_office && rawAddresses[idx]) {
+              extractedAddresses.push(rawAddresses[idx]);
+              addLog('  ✅ ' + rawAddresses[idx].address + ' → ' + (item.reason || '事業所'), 'success');
+            } else if (rawAddresses[idx]) {
+              addLog('  ❌ ' + rawAddresses[idx].address + ' → ' + (item.reason || '除外'), 'info');
+            }
+          });
           var removedCount = rawAddresses.length - extractedAddresses.length;
           if (removedCount > 0) {
             addLog('AI判定: ' + removedCount + '件の非事業所住所を除外 → 事業所 ' + extractedAddresses.length + '件', 'success');
@@ -635,7 +676,15 @@ async function startAnalysis() {
             addLog('AI判定: 全 ' + rawAddresses.length + '件が事業所と確認', 'success');
           }
         } else {
-          addLog('AI判定のパースに失敗 → 全住所を使用', 'info');
+          // フォールバック: 旧フォーマット [1,3,5]
+          var filterMatch = filterRaw.match(/\[[\d\s,]+\]/);
+          if (filterMatch) {
+            var officeIndices = JSON.parse(filterMatch[0]);
+            extractedAddresses = officeIndices.map(function(idx) { return rawAddresses[idx - 1]; }).filter(function(a) { return !!a; });
+            addLog('AI判定: 事業所 ' + extractedAddresses.length + '/' + rawAddresses.length + '件', 'success');
+          } else {
+            addLog('AI判定のパースに失敗 → 全住所を使用', 'info');
+          }
         }
       } catch (e) {
         addLog('AI事業所判定スキップ: ' + e.message, 'info');
