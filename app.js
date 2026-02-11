@@ -652,6 +652,10 @@ async function startAreaOnlyAnalysis(area, industryId) {
     completeStep('step-report');
     addLog('✅ エリア分析完了！', 'success');
 
+    // 進捗を隠して結果を表示
+    hideProgress();
+    showResults();
+
   } catch (err) {
     addLog('エラー: ' + err.message, 'error');
     showError(err.message);
