@@ -1111,7 +1111,7 @@ function renderResults(data) {
       '<div><div class="result-card__title">Webサイト巡回結果</div>' +
       '<div class="result-card__subtitle">サイト構造・情報量の概要</div></div></div>' +
       '<div class="result-card__body">' +
-      '<div style="display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:14px;">' +
+      '<div class="crawl-stats-grid">' +
       '<div class="stat-box"><div class="stat-box__value">' + okPages.length + '</div><div class="stat-box__label">取得ページ数</div></div>' +
       '<div class="stat-box"><div class="stat-box__value">' + (totalChars >= 10000 ? (totalChars/10000).toFixed(1) + '万' : totalChars.toLocaleString()) + '</div><div class="stat-box__label">合計文字数</div></div>' +
       '<div class="stat-box"><div class="stat-box__value">' + crawledPages.length + '</div><div class="stat-box__label">検出リンク数</div></div>' +
@@ -1204,7 +1204,7 @@ function renderResults(data) {
     html += '</tbody></table></div>';
 
     // --- Chart.jsグラフ用Canvas ---
-    html += '<div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px;">' +
+    html += '<div class="chart-grid">' +
       '<div style="background:rgba(30,41,59,0.5); border-radius:12px; padding:16px; border:1px solid rgba(99,102,241,0.1);">' +
       '<div style="font-size:13px; font-weight:700; margin-bottom:8px; color:var(--text-primary);">📈 人口 × 年間転換世帯数</div>' +
       '<div style="position:relative; height:220px;"><canvas id="chart-pop-conv"></canvas></div></div>' +
@@ -1241,7 +1241,7 @@ function renderResults(data) {
     if (cross.risk_areas) insightCards.push({icon:'⚠️',title:'リスク・注意エリア',text:cross.risk_areas,color:'#f59e0b'});
 
     if (insightCards.length > 0) {
-      html += '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:12px; margin-bottom:12px;">';
+      html += '<div class="insight-grid">';
       insightCards.forEach(function(card) {
         html += '<div style="background:rgba(30,41,59,0.5); border-radius:12px; padding:16px; border-left:4px solid ' + card.color + ';">' +
           '<div style="font-size:13px; font-weight:700; margin-bottom:8px; color:' + card.color + ';">' + card.icon + ' ' + card.title + '</div>' +

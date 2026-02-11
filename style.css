@@ -1391,3 +1391,131 @@ body {
   box-shadow: 0 4px 20px var(--accent-glow);
 }
 
+/* Dynamic layout grids (used in app.js) */
+.chart-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.insight-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.crawl-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+/* ========================================
+   Mobile Responsive (max-width: 768px)
+   ======================================== */
+@media (max-width: 768px) {
+  /* Global */
+  body { font-size: 13px; line-height: 1.6; overflow-x: hidden; }
+  .container { padding: 0 12px; }
+
+  /* Header */
+  .header { padding: 12px 0; }
+  .header__logo-icon { width: 32px; height: 32px; font-size: 16px; border-radius: 8px; }
+  .header__logo-text { font-size: 16px; }
+  .header__badge { font-size: 10px; padding: 3px 8px; }
+  .btn-settings { font-size: 11px; padding: 6px 10px; }
+
+  /* Hero */
+  .hero { padding: 24px 0 16px; }
+  .hero__title { font-size: 24px; }
+  .hero__subtitle { font-size: 13px; }
+  .hero__image { max-width: 200px; margin-top: 12px; }
+
+  /* Search */
+  .search-card { padding: 16px; border-radius: 12px; }
+  .search__input { font-size: 13px; padding: 10px 12px; }
+  .search__btn { padding: 10px 16px; font-size: 13px; width: 100%; }
+
+  /* Features */
+  .features { grid-template-columns: 1fr; gap: 8px; margin-top: 16px; }
+  .feature-item { padding: 12px; }
+  .feature-item__icon { font-size: 20px; }
+  .feature-item__title { font-size: 12px; }
+  .feature-item__desc { font-size: 10px; }
+
+  /* Progress */
+  .progress__step { padding: 10px; gap: 10px; }
+  .progress__step-icon { width: 26px; height: 26px; font-size: 12px; }
+  .progress__step-title { font-size: 12px; }
+  .progress__step-desc { font-size: 10px; }
+
+  /* Results */
+  .results__header { margin-bottom: 16px; gap: 8px; }
+  .results__title { font-size: 18px; }
+  .results__actions { gap: 6px; }
+  .btn-pdf, .btn-rerun { padding: 8px 12px; font-size: 11px; }
+
+  /* Result Cards */
+  .result-card { border-radius: 10px; }
+  .result-card__header { padding: 12px; gap: 10px; }
+  .result-card__icon { width: 36px; height: 36px; font-size: 16px; }
+  .result-card__title { font-size: 14px; }
+  .result-card__subtitle { font-size: 10px; }
+  .result-card__body { padding: 12px; font-size: 12px; }
+
+  /* Data Table */
+  .data-table th, .data-table td { padding: 6px 8px; font-size: 11px; }
+  .data-table th { min-width: 70px; white-space: nowrap; }
+
+  /* Stat Grid */
+  .stat-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .stat-box { padding: 10px; border-radius: 8px; }
+  .stat-box__value { font-size: 18px; }
+  .stat-box__label { font-size: 9px; }
+
+  /* Summary Box */
+  .summary-box { padding: 12px; }
+  .summary-box__title { font-size: 12px; }
+  .summary-box__text { font-size: 11px; }
+
+  /* Tags */
+  .tag { font-size: 10px; padding: 3px 8px; }
+
+  /* Highlight */
+  .highlight { font-size: 14px; }
+  .highlight--green { font-size: 14px; }
+  .highlight--amber { font-size: 14px; }
+
+  /* Progress Log */
+  .progress-log { font-size: 11px; max-height: 200px; }
+
+  /* Modal */
+  .modal__content { margin: 16px; padding: 16px; border-radius: 12px; max-width: 100%; }
+  .modal__title { font-size: 16px; }
+  .modal__desc { font-size: 12px; }
+
+  /* Charts & Grids */
+  .chart-grid { grid-template-columns: 1fr; gap: 10px; }
+  .insight-grid { grid-template-columns: 1fr; gap: 8px; }
+  .crawl-stats-grid { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+
+  /* Footer */
+  .footer__text { font-size: 10px; }
+}
+
+/* ========================================
+   Extra Small (max-width: 480px)
+   ======================================== */
+@media (max-width: 480px) {
+  .hero__title { font-size: 20px; }
+  .hero__subtitle { font-size: 12px; }
+  .stat-grid { grid-template-columns: 1fr 1fr; gap: 6px; }
+  .stat-box__value { font-size: 16px; }
+  .data-table th, .data-table td { padding: 4px 6px; font-size: 10px; }
+  .result-card__body { padding: 10px; font-size: 11px; }
+  .header__actions { gap: 8px; }
+}
+
