@@ -1119,22 +1119,40 @@ function renderResults(data) {
     ? '<span style="background: linear-gradient(135deg, #10b981, #3b82f6); color:#fff; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:700;">📊 e-Stat実データ + AI分析</span>'
     : '<span style="background: var(--accent-gradient); color:#fff; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:700;">🤖 AI推計モード</span>';
 
-  // Company Card
-  html += '<div class="result-card result-card--company">' +
-    '<div class="result-card__header">' +
-    '<div class="result-card__icon">🏢</div>' +
-    '<div>' +
-    '<div class="result-card__title">' + escapeHtml(company.name || '企業分析') + '</div>' +
-    '<div class="result-card__subtitle">Gemini 2.0 Flash による事業内容分析 ' + sourceBadge + '</div>' +
-    '</div></div>' +
-    '<div class="result-card__body">' +
-    '<table class="data-table">' +
-    '<tr><th>企業名</th><td>' + escapeHtml(company.name || '—') + '</td></tr>' +
-    '<tr><th>本社所在地</th><td>' + escapeHtml(company.address || '—') + '</td></tr>' +
-    '<tr><th>事業内容</th><td>' + escapeHtml(company.business_type || '—') + '</td></tr>' +
-    '<tr><th>主力サービス</th><td>' + escapeHtml(company.main_services || '—') + '</td></tr>' +
-    '<tr><th>不動産事業</th><td>' + (company.is_real_estate ? '<span class="highlight--green">✅ 該当</span>' : '❌ 非該当') + '</td></tr>' +
-    '</table>';
+  // Company Card / Area Card
+  if (data.isAreaOnly) {
+    // エリア直接分析モード → エリア情報カード
+    html += '<div class="result-card result-card--company">' +
+      '<div class="result-card__header">' +
+      '<div class="result-card__icon">🏠</div>' +
+      '<div>' +
+      '<div class="result-card__title">' + escapeHtml(company.name || 'エリア分析') + '</div>' +
+      '<div class="result-card__subtitle">不動産市場エリア分析 ' + sourceBadge + '</div>' +
+      '</div></div>' +
+      '<div class="result-card__body">' +
+      '<table class="data-table">' +
+      '<tr><th>分析対象</th><td>' + escapeHtml(company.address || '—') + '</td></tr>' +
+      '<tr><th>分析モード</th><td><span class="highlight--green">📍 エリア直接分析</span></td></tr>' +
+      '<tr><th>不動産事業</th><td><span class="highlight--green">✅ 該当</span></td></tr>' +
+      '</table>';
+  } else {
+    // URL分析モード → 従来の企業情報カード
+    html += '<div class="result-card result-card--company">' +
+      '<div class="result-card__header">' +
+      '<div class="result-card__icon">🏢</div>' +
+      '<div>' +
+      '<div class="result-card__title">' + escapeHtml(company.name || '企業分析') + '</div>' +
+      '<div class="result-card__subtitle">Gemini 2.0 Flash による事業内容分析 ' + sourceBadge + '</div>' +
+      '</div></div>' +
+      '<div class="result-card__body">' +
+      '<table class="data-table">' +
+      '<tr><th>企業名</th><td>' + escapeHtml(company.name || '—') + '</td></tr>' +
+      '<tr><th>本社所在地</th><td>' + escapeHtml(company.address || '—') + '</td></tr>' +
+      '<tr><th>事業内容</th><td>' + escapeHtml(company.business_type || '—') + '</td></tr>' +
+      '<tr><th>主力サービス</th><td>' + escapeHtml(company.main_services || '—') + '</td></tr>' +
+      '<tr><th>不動産事業</th><td>' + (company.is_real_estate ? '<span class="highlight--green">✅ 該当</span>' : '❌ 非該当') + '</td></tr>' +
+      '</table>';
+  }
 
   // 事業所一覧（クロールテキストから直接抽出した住所を表示）
   var addrs = data.extracted_addresses || [];
