@@ -1,15 +1,15 @@
 ﻿// ========================================
-// 不動産市場把握AI v3.7 - Frontend Only
+// 不動産市場把握AI v3.8 - Cloudflare Workers Proxy
 // ブラウザから直接Gemini API + e-Stat APIを呼び出す
 // ========================================
 
-var GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+// Cloudflare Worker Proxy (APIキー秘匿)
+var WORKER_BASE = 'https://house-search-proxy.banma878.workers.dev';
 var CORS_PROXIES = [
   { name: 'corsproxy.io', build: function(u) { return 'https://corsproxy.io/?' + encodeURIComponent(u); } },
   { name: 'allorigins', build: function(u) { return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u); } },
   { name: 'codetabs', build: function(u) { return 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u); } }
 ];
-var ESTAT_API_BASE = 'https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData';
 var _crawledAddresses = [];
 var _crawlDebugInfo = { pages: [], scoredLinks: [], addresses: [] };
 var _activeProxy = '';
@@ -128,23 +128,14 @@ function updateStatusDisplay() {
   statusEl.innerHTML = html;
 }
 
-// ---- Gemini API Direct Call (with auto-retry on 429) ----
+// ---- Gemini API via Cloudflare Worker Proxy (with auto-retry on 429) ----
 async function callGemini(prompt) {
-  var apiKey = localStorage.getItem('gemini_api_key');
-  if (!apiKey) throw new Error('Gemini APIキーが設定されていません。右上の「🔑 API設定」から設定してください。');
-
   var maxRetries = 3;
   for (var attempt = 0; attempt <= maxRetries; attempt++) {
-    var res = await fetch(GEMINI_API_BASE + '?key=' + apiKey, {
+    var res = await fetch(WORKER_BASE + '/api/gemini', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.3,
-          maxOutputTokens: 8000,
-        }
-      })
+      body: JSON.stringify({ prompt: prompt })
     });
 
     if (res.status === 429 && attempt < maxRetries) {
@@ -154,50 +145,40 @@ async function callGemini(prompt) {
       continue;
     }
 
+    var data = await res.json();
     if (!res.ok) {
-      var errData = await res.json().catch(function() { return {}; });
-      var errMessage = (errData.error && errData.error.message) || ('API Error: ' + res.status);
-      if (res.status === 400 && errMessage.includes('API key')) {
-        throw new Error('APIキーが無効です。設定を確認してください。');
-      }
+      var errMessage = (data.error && typeof data.error === 'string') ? data.error : (data.error && data.error.message) || ('API Error: ' + res.status);
       throw new Error(errMessage);
     }
 
-    var data = await res.json();
-    var text = (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text) || '';
-    return text;
+    return data.text || '';
   }
 }
 
-// ---- e-Stat API ----
+// ---- e-Stat API via Cloudflare Worker Proxy ----
 async function fetchEstatPopulation(prefecture, city) {
-  var appId = localStorage.getItem('estat_app_id');
-  if (!appId) return null;
-
   var prefCode = PREFECTURE_CODES[prefecture];
   if (!prefCode) return null;
 
   addLog('e-Stat APIから人口データを取得中...', 'info');
 
   try {
-    // 国勢調査 人口等基本集計 (statsDataId: 0003448233)
-    var url = ESTAT_API_BASE + '?appId=' + appId +
-      '&statsDataId=0003448233' +
+    var url = WORKER_BASE + '/api/estat/population' +
+      '?statsDataId=0003448233' +
       '&cdArea=' + prefCode + '000' +
       '&limit=100';
 
-    var res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    var res = await fetch(url);
     if (!res.ok) throw new Error('e-Stat API HTTP ' + res.status);
     var data = await res.json();
 
     var result = data.GET_STATS_DATA && data.GET_STATS_DATA.STATISTICAL_DATA;
     if (!result || !result.DATA_INF || !result.DATA_INF.VALUE) {
-      // 都道府県コードが合わない場合、都道府県レベルのデータを試行
-      url = ESTAT_API_BASE + '?appId=' + appId +
-        '&statsDataId=0003448233' +
+      url = WORKER_BASE + '/api/estat/population' +
+        '?statsDataId=0003448233' +
         '&cdArea=' + prefCode +
         '&limit=100';
-      res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+      res = await fetch(url);
       data = await res.json();
       result = data.GET_STATS_DATA && data.GET_STATS_DATA.STATISTICAL_DATA;
     }
@@ -211,17 +192,13 @@ async function fetchEstatPopulation(prefecture, city) {
     var population = null;
     var households = null;
 
-    // 値を抽出
     for (var i = 0; i < values.length; i++) {
       var v = values[i];
       var val = parseInt(v.$, 10);
       if (isNaN(val)) continue;
-
-      // 総人口
       if (v['@tab'] === '020' || (v['@cat01'] && v['@cat01'].indexOf('0010') >= 0)) {
         if (!population || val > 100) population = val;
       }
-      // 世帯数
       if (v['@tab'] === '040' || (v['@cat01'] && v['@cat01'].indexOf('0020') >= 0)) {
         if (!households || val > 100) households = val;
       }
@@ -246,16 +223,12 @@ async function fetchEstatPopulation(prefecture, city) {
 }
 
 async function fetchEstatHousing(prefecture) {
-  var appId = localStorage.getItem('estat_app_id');
-  if (!appId) return null;
-
   var prefCode = PREFECTURE_CODES[prefecture];
   if (!prefCode) return null;
 
   try {
-    // 住宅・土地統計調査 (statsDataId: 0003445078)
-    var url = ESTAT_API_BASE + '?appId=' + appId +
-      '&statsDataId=0003445078' +
+    var url = WORKER_BASE + '/api/estat/housing' +
+      '?statsDataId=0003445078' +
       '&cdArea=' + prefCode +
       '&limit=50';
 
@@ -573,12 +546,6 @@ async function startAnalysis() {
   if (!url) { showError('URLを入力してください'); return; }
   if (!isValidUrl(url)) { showError('有効なURLを入力してください（例: https://example.co.jp）'); return; }
 
-  var apiKey = localStorage.getItem('gemini_api_key');
-  if (!apiKey) {
-    showError('Gemini APIキーが設定されていません。右上の「🔑 API設定」をクリックして設定してください。');
-    return;
-  }
-
   hideError();
   hideResults();
   showProgress();
@@ -586,13 +553,7 @@ async function startAnalysis() {
   clearLogs();
 
   addLog('分析を開始します...', 'info');
-
-  var estatAppId = localStorage.getItem('estat_app_id');
-  if (estatAppId) {
-    addLog('e-Stat App ID検出 → 政府統計データを優先使用', 'info');
-  } else {
-    addLog('e-Stat未設定 → AI推計モードで実行', 'info');
-  }
+  addLog('APIプロキシ経由でGemini + e-Statを使用', 'info');
 
   try {
     // Step 1: Crawl site (top + subpages)
@@ -724,10 +685,10 @@ async function startAnalysis() {
       var area = uniqueAreas[aIdx];
       addLog('[' + (aIdx+1) + '/' + uniqueAreas.length + '] エリアデータ取得: ' + area.label);
 
-      // e-Stat data (per prefecture)
+      // e-Stat data (per prefecture) - Workerプロキシ経由
       var areaEstatPop = null;
       var areaEstatHousing = null;
-      if (estatAppId && area.prefecture) {
+      if (area.prefecture) {
         areaEstatPop = await fetchEstatPopulation(area.prefecture, area.city);
         areaEstatHousing = await fetchEstatHousing(area.prefecture);
       }
