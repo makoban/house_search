@@ -492,8 +492,8 @@ async function startAnalysis() {
   }
 
   if (candidates.length === 1) {
-    // 一意に特定 → 業種選択へ
-    showIndustrySelectModal(candidates[0]);
+    // 一意に特定 → 不動産分析を直接開始
+    startAreaOnlyAnalysis(candidates[0], 'real_estate');
     return;
   }
 
@@ -519,7 +519,7 @@ function showAreaSelectModal(candidates, inputText) {
 
     btn.addEventListener('click', function() {
       document.getElementById('area-select-modal').classList.remove('active');
-      showIndustrySelectModal(area);
+      startAreaOnlyAnalysis(area, 'real_estate');
     });
     listEl.appendChild(btn);
   });
@@ -578,13 +578,8 @@ async function startAreaOnlyAnalysis(area, industryId) {
   setLoading(true);
   clearLogs();
 
-  addLog('エリア分析を開始します...', 'info');
+  addLog('🏠 不動産エリア分析を開始します...', 'info');
   addLog('対象エリア: ' + area.fullLabel, 'info');
-
-  var config = (typeof INDUSTRY_CONFIG !== 'undefined' && INDUSTRY_CONFIG[industryId])
-    ? INDUSTRY_CONFIG[industryId]
-    : { name: '汎用', icon: '🏢', color: '#6b7280' };
-  addLog('分析業種: ' + config.icon + ' ' + config.name, 'info');
   addLog('APIプロキシ経由でGemini + e-Statを使用', 'info');
 
   try {
@@ -605,27 +600,22 @@ async function startAreaOnlyAnalysis(area, industryId) {
     var estatPop = await fetchEstatPopulation(area.prefecture, area.city);
 
     // e-Stat住宅データ
+    addLog('  e-Stat APIから住宅データを取得中...', 'info');
     var estatHousing = await fetchEstatHousing(area.prefecture);
 
-    // 業種別追加データ（v4.0 fetchEstatForIndustryがある場合）
-    var extraEstatData = {};
-    if (typeof fetchEstatForIndustry === 'function' && area.prefCode) {
-      extraEstatData = await fetchEstatForIndustry(industryId, area.prefCode, area.city);
-    }
-
-    // AI市場分析（業種別プロンプト使用）
+    // 不動産用AI市場分析（①〜⑥フォーマット）
+    var areaForPrompt = {
+      label: area.fullLabel,
+      prefecture: area.prefecture,
+      city: area.city,
+      isHQ: true
+    };
     var dummyAnalysis = {
-      company: { name: 'エリア直接分析', business_type: config.name },
+      company: { name: area.fullLabel + ' エリア分析', business_type: '不動産・住宅', is_real_estate: true },
       location: { prefecture: area.prefecture, city: area.city }
     };
 
-    var marketPrompt;
-    if (typeof getIndustryPrompt === 'function') {
-      var promptFns = getIndustryPrompt(industryId);
-      marketPrompt = promptFns.market(dummyAnalysis, Object.assign({ population: estatPop }, extraEstatData), area);
-    } else {
-      marketPrompt = buildMarketPromptForArea(dummyAnalysis, estatPop, estatHousing, area);
-    }
+    var marketPrompt = buildMarketPromptForArea(dummyAnalysis, estatPop, estatHousing, areaForPrompt);
 
     var marketRaw = await callGemini(marketPrompt);
     var marketData = parseJSON(marketRaw);
@@ -648,12 +638,9 @@ async function startAreaOnlyAnalysis(area, industryId) {
     analysisData = {
       url: '',
       isAreaOnly: true,
-      company: { name: area.fullLabel + ' エリア分析', business_type: config.name, address: area.fullLabel },
-      industry: { id: industryId, name: config.name, confidence: 1.0 },
-      industryId: industryId,
-      industryConfig: config,
+      company: { name: area.fullLabel + ' 不動産エリア分析', business_type: '不動産・住宅', is_real_estate: true, address: area.fullLabel },
       location: { prefecture: area.prefecture, city: area.city },
-      markets: [{ area: { label: area.fullLabel, prefecture: area.prefecture, city: area.city, isHQ: true }, data: marketData }],
+      markets: [{ area: areaForPrompt, data: marketData }],
       market: marketData,
       crossAreaInsight: null,
       timestamp: new Date().toISOString(),
