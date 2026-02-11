@@ -130,7 +130,7 @@ function updateStatusDisplay() {
 
 // ---- Gemini API via Cloudflare Worker Proxy (with throttle + auto-retry) ----
 var _lastGeminiCall = 0;
-var _geminiMinInterval = 4000; // 最低4秒間隔（15RPM対策）
+var _geminiMinInterval = 6000; // 最低6秒間隔（課金反映前の15RPM対策）
 
 async function callGemini(prompt) {
   // スロットリング: 前回呼び出しから最低4秒空ける
