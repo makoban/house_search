@@ -1088,23 +1088,45 @@ function renderResults(data) {
   }
   html += '</div></div>';
 
-  // 巡回ページ一覧（要約付き）
+  // 巡回ページサマリー（主要ページのみコメント）
   var crawledPages = (_crawlDebugInfo && _crawlDebugInfo.crawledPages) || [];
   if (crawledPages.length > 0) {
-    var okCount = crawledPages.filter(function(p) { return p.status === 'OK'; }).length;
+    var okPages = crawledPages.filter(function(p) { return p.status === 'OK'; });
+    var totalChars = okPages.reduce(function(sum, p) { return sum + (p.chars || 0); }, 0);
+
+    // 主要ページを特定（会社概要・事業所・アクセス・サービス等）
+    var importantKeywords = ['会社概要','企業情報','事業所','アクセス','拠点','サービス','事業内容','about','company','office','access','service'];
+    var keyPages = okPages.filter(function(p) {
+      var name = (p.name || '').toLowerCase();
+      return importantKeywords.some(function(kw) { return name.indexOf(kw) >= 0; });
+    }).slice(0, 5);
+    // トップページも含める
+    if (okPages.length > 0 && keyPages.indexOf(okPages[0]) < 0) {
+      keyPages.unshift(okPages[0]);
+    }
+
     html += '<div class="result-card" style="border: 1px solid rgba(99,102,241,0.15);">' +
       '<div class="result-card__header">' +
       '<div class="result-card__icon">🌐</div>' +
-      '<div><div class="result-card__title">巡回ページ一覧</div>' +
-      '<div class="result-card__subtitle">' + okCount + '/' + crawledPages.length + ' ページ取得成功</div></div></div>' +
-      '<div class="result-card__body">';
-    crawledPages.forEach(function(p, i) {
-      if (p.status !== 'OK') return;
-      html += '<div style="margin-bottom:10px; padding:8px 12px; border-radius:8px; background:rgba(99,102,241,0.04); border:1px solid rgba(99,102,241,0.08);">' +
-        '<div style="font-size:12px; font-weight:700; color:var(--text-primary);">' + (i+1) + '. ' + escapeHtml(p.name) + ' <span style="font-weight:400; color:var(--text-muted); font-size:10px;">(' + p.chars.toLocaleString() + '文字)</span></div>' +
-        '<div style="font-size:11px; color:var(--text-secondary); margin-top:3px; line-height:1.4;">' + escapeHtml(p.summary || '') + '</div>' +
-        '</div>';
-    });
+      '<div><div class="result-card__title">Webサイト巡回結果</div>' +
+      '<div class="result-card__subtitle">サイト構造・情報量の概要</div></div></div>' +
+      '<div class="result-card__body">' +
+      '<div style="display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:14px;">' +
+      '<div class="stat-box"><div class="stat-box__value">' + okPages.length + '</div><div class="stat-box__label">取得ページ数</div></div>' +
+      '<div class="stat-box"><div class="stat-box__value">' + (totalChars >= 10000 ? (totalChars/10000).toFixed(1) + '万' : totalChars.toLocaleString()) + '</div><div class="stat-box__label">合計文字数</div></div>' +
+      '<div class="stat-box"><div class="stat-box__value">' + crawledPages.length + '</div><div class="stat-box__label">検出リンク数</div></div>' +
+      '</div>';
+
+    if (keyPages.length > 0) {
+      html += '<div style="font-size:12px; font-weight:700; color:var(--text-primary); margin-bottom:8px;">📌 主要ページ</div>';
+      keyPages.forEach(function(p) {
+        html += '<div style="display:flex; align-items:center; gap:8px; padding:5px 10px; margin-bottom:4px; border-radius:6px; background:rgba(99,102,241,0.04);">' +
+          '<span style="font-size:11px; font-weight:600; color:var(--text-primary); flex:1;">' + escapeHtml(p.name || '') + '</span>' +
+          '<span style="font-size:10px; color:var(--text-muted); white-space:nowrap;">' + (p.chars || 0).toLocaleString() + '文字</span>' +
+          '</div>';
+      });
+    }
+
     html += '</div></div>';
   }
 
