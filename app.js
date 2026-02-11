@@ -472,10 +472,209 @@ function clearLogs() {
 
 // ---- Main Analysis Flow ----
 async function startAnalysis() {
-  var url = urlInput.value.trim();
+  var input = urlInput.value.trim();
 
-  if (!url) { showError('URLを入力してください'); return; }
-  if (!isValidUrl(url)) { showError('有効なURLを入力してください（例: https://example.co.jp）'); return; }
+  if (!input) { showError('URLまたはエリア名を入力してください'); return; }
+
+  // URL or 地名を自動判別
+  if (isValidUrl(input)) {
+    // URL → 従来のWebクロール + AI分析フロー
+    return startUrlAnalysis(input);
+  }
+
+  // 地名として処理
+  hideError();
+  var candidates = searchArea(input);
+
+  if (candidates.length === 0) {
+    showError('「' + input + '」に一致するエリアが見つかりません。都道府県名や市区町村名を入力してください。');
+    return;
+  }
+
+  if (candidates.length === 1) {
+    // 一意に特定 → 業種選択へ
+    showIndustrySelectModal(candidates[0]);
+    return;
+  }
+
+  // 複数候補 → 地名選択モーダル
+  showAreaSelectModal(candidates, input);
+}
+
+// ---- 地名選択モーダル ----
+function showAreaSelectModal(candidates, inputText) {
+  var listEl = document.getElementById('area-select-list');
+  listEl.innerHTML = '';
+
+  candidates.forEach(function(area) {
+    var btn = document.createElement('button');
+    btn.className = 'area-select-btn';
+    btn.style.cssText = 'display:flex; align-items:center; gap:10px; padding:14px 18px; border:1px solid rgba(99,102,241,0.3); border-radius:12px; background:rgba(30,41,59,0.6); color:#fff; cursor:pointer; font-size:14px; transition:all 0.2s; text-align:left;';
+    btn.innerHTML = '<span style="font-size:20px;">📍</span>' +
+      '<div><div style="font-weight:700;">' + escapeHtml(area.fullLabel) + '</div>' +
+      '<div style="font-size:11px; color:var(--text-muted);">' + (area.type === 'prefecture' ? '都道府県' : '市区町村') + '</div></div>';
+
+    btn.addEventListener('mouseover', function() { btn.style.borderColor = '#6366f1'; btn.style.background = 'rgba(99,102,241,0.15)'; });
+    btn.addEventListener('mouseout', function() { btn.style.borderColor = 'rgba(99,102,241,0.3)'; btn.style.background = 'rgba(30,41,59,0.6)'; });
+
+    btn.addEventListener('click', function() {
+      document.getElementById('area-select-modal').classList.remove('active');
+      showIndustrySelectModal(area);
+    });
+    listEl.appendChild(btn);
+  });
+
+  document.getElementById('area-select-modal').classList.add('active');
+}
+
+// ---- 業種選択モーダル ----
+var _pendingAreaForAnalysis = null;
+
+function showIndustrySelectModal(area) {
+  _pendingAreaForAnalysis = area;
+  var gridEl = document.getElementById('industry-select-grid');
+  gridEl.innerHTML = '';
+
+  // INDUSTRY_CONFIGが未定義（v4.0ファイル未読込）の場合のフォールバック
+  var config = (typeof INDUSTRY_CONFIG !== 'undefined') ? INDUSTRY_CONFIG : {
+    other: { name: '汎用分析', icon: '🏢', color: '#6b7280' }
+  };
+
+  for (var id in config) {
+    (function(industryId, cfg) {
+      var btn = document.createElement('button');
+      btn.className = 'industry-select-btn';
+      btn.style.cssText = 'display:flex; flex-direction:column; align-items:center; gap:6px; padding:16px 8px; border:1px solid rgba(99,102,241,0.2); border-radius:14px; background:rgba(30,41,59,0.6); color:#fff; cursor:pointer; font-size:12px; transition:all 0.2s; min-height:80px; justify-content:center;';
+      btn.innerHTML = '<span style="font-size:28px;">' + (cfg.icon || '🏢') + '</span>' +
+        '<span style="font-weight:600; line-height:1.3;">' + escapeHtml(cfg.name) + '</span>';
+
+      btn.addEventListener('mouseover', function() {
+        btn.style.borderColor = cfg.color || '#6366f1';
+        btn.style.background = 'rgba(99,102,241,0.15)';
+        btn.style.transform = 'scale(1.05)';
+      });
+      btn.addEventListener('mouseout', function() {
+        btn.style.borderColor = 'rgba(99,102,241,0.2)';
+        btn.style.background = 'rgba(30,41,59,0.6)';
+        btn.style.transform = 'scale(1)';
+      });
+
+      btn.addEventListener('click', function() {
+        document.getElementById('industry-select-modal').classList.remove('active');
+        startAreaOnlyAnalysis(_pendingAreaForAnalysis, industryId);
+      });
+      gridEl.appendChild(btn);
+    })(id, config[id]);
+  }
+
+  document.getElementById('industry-select-modal').classList.add('active');
+}
+
+// ---- エリア専用分析フロー ----
+async function startAreaOnlyAnalysis(area, industryId) {
+  hideError();
+  hideResults();
+  showProgress();
+  setLoading(true);
+  clearLogs();
+
+  addLog('エリア分析を開始します...', 'info');
+  addLog('対象エリア: ' + area.fullLabel, 'info');
+
+  var config = (typeof INDUSTRY_CONFIG !== 'undefined' && INDUSTRY_CONFIG[industryId])
+    ? INDUSTRY_CONFIG[industryId]
+    : { name: '汎用', icon: '🏢', color: '#6b7280' };
+  addLog('分析業種: ' + config.icon + ' ' + config.name, 'info');
+  addLog('APIプロキシ経由でGemini + e-Statを使用', 'info');
+
+  try {
+    // Step 1 skip (no web crawl)
+    completeStep('step-crawl');
+    addLog('Webクロールをスキップ（エリア直接分析モード）', 'info');
+
+    // Step 2 skip (no company analysis)
+    completeStep('step-analyze');
+    addLog('企業分析をスキップ（エリア直接分析モード）', 'info');
+
+    // Step 3: エリアデータ取得
+    activateStep('step-market');
+    addLog('[1/1] エリアデータ取得: ' + area.fullLabel);
+
+    // e-Stat人口データ
+    addLog('  e-Stat APIから人口データを取得中...', 'info');
+    var estatPop = await fetchEstatPopulation(area.prefecture, area.city);
+
+    // e-Stat住宅データ
+    var estatHousing = await fetchEstatHousing(area.prefecture);
+
+    // 業種別追加データ（v4.0 fetchEstatForIndustryがある場合）
+    var extraEstatData = {};
+    if (typeof fetchEstatForIndustry === 'function' && area.prefCode) {
+      extraEstatData = await fetchEstatForIndustry(industryId, area.prefCode, area.city);
+    }
+
+    // AI市場分析（業種別プロンプト使用）
+    var dummyAnalysis = {
+      company: { name: 'エリア直接分析', business_type: config.name },
+      location: { prefecture: area.prefecture, city: area.city }
+    };
+
+    var marketPrompt;
+    if (typeof getIndustryPrompt === 'function') {
+      var promptFns = getIndustryPrompt(industryId);
+      marketPrompt = promptFns.market(dummyAnalysis, Object.assign({ population: estatPop }, extraEstatData), area);
+    } else {
+      marketPrompt = buildMarketPromptForArea(dummyAnalysis, estatPop, estatHousing, area);
+    }
+
+    var marketRaw = await callGemini(marketPrompt);
+    var marketData = parseJSON(marketRaw);
+
+    // e-Stat実データで上書き
+    if (estatPop && estatPop.from_estat) {
+      if (!marketData.population) marketData.population = {};
+      marketData.population.total_population = estatPop.total_population;
+      marketData.population.households = estatPop.households;
+      marketData.population.source = estatPop.source;
+    }
+
+    addLog('→ ' + area.fullLabel + ' 分析完了', 'success');
+    completeStep('step-market');
+
+    // Step 4: レポート生成
+    activateStep('step-report');
+    addLog('レポート生成中...', 'info');
+
+    analysisData = {
+      url: '',
+      isAreaOnly: true,
+      company: { name: area.fullLabel + ' エリア分析', business_type: config.name, address: area.fullLabel },
+      industry: { id: industryId, name: config.name, confidence: 1.0 },
+      industryId: industryId,
+      industryConfig: config,
+      location: { prefecture: area.prefecture, city: area.city },
+      markets: [{ area: { label: area.fullLabel, prefecture: area.prefecture, city: area.city, isHQ: true }, data: marketData }],
+      market: marketData,
+      crossAreaInsight: null,
+      timestamp: new Date().toISOString(),
+      data_source: 'e-Stat + Gemini',
+      extracted_addresses: []
+    };
+
+    renderResults(analysisData);
+    completeStep('step-report');
+    addLog('✅ エリア分析完了！', 'success');
+
+  } catch (err) {
+    addLog('エラー: ' + err.message, 'error');
+    showError(err.message);
+  } finally {
+    setLoading(false);
+  }
+}
+
+// ---- URL分析フロー（従来のメインフロー） ----
+async function startUrlAnalysis(url) {
 
   hideError();
   hideResults();
