@@ -42,91 +42,8 @@ var progressLogContent = document.getElementById('progress-log-content');
 
 // ---- Settings Modal ----
 var settingsModal = document.getElementById('settings-modal');
-var settingsBtn = document.getElementById('settings-btn');
-var closeSettingsBtn = document.querySelector('.modal__close');
-var saveSettingsBtn = document.getElementById('save-settings-btn');
-var geminiKeyInput = document.getElementById('gemini-key');
-var estatKeyInput = document.getElementById('estat-key');
-
-// Load saved keys
-if (geminiKeyInput) {
-  geminiKeyInput.value = localStorage.getItem('gemini_api_key') || '';
-}
-if (estatKeyInput) {
-  estatKeyInput.value = localStorage.getItem('estat_app_id') || '';
-}
-updateStatusDisplay();
-
-// Event Listeners
-if (settingsBtn) {
-  settingsBtn.addEventListener('click', function() {
-    settingsModal.classList.add('active');
-    geminiKeyInput.value = localStorage.getItem('gemini_api_key') || '';
-    if (estatKeyInput) estatKeyInput.value = localStorage.getItem('estat_app_id') || '';
-    updateStatusDisplay();
-  });
-}
-
-if (closeSettingsBtn) {
-  closeSettingsBtn.addEventListener('click', function() {
-    settingsModal.classList.remove('active');
-  });
-}
-
-if (saveSettingsBtn) {
-  saveSettingsBtn.addEventListener('click', function() {
-    var geminiKey = geminiKeyInput.value.trim();
-    var estatKey = estatKeyInput ? estatKeyInput.value.trim() : '';
-
-    if (geminiKey) {
-      localStorage.setItem('gemini_api_key', geminiKey);
-    } else {
-      localStorage.removeItem('gemini_api_key');
-    }
-
-    if (estatKey) {
-      localStorage.setItem('estat_app_id', estatKey);
-    } else {
-      localStorage.removeItem('estat_app_id');
-    }
-
-    updateStatusDisplay();
-    saveSettingsBtn.textContent = '✅ 保存しました!';
-    setTimeout(function() {
-      saveSettingsBtn.textContent = '保存する';
-      settingsModal.classList.remove('active');
-    }, 1000);
-  });
-}
-
-if (settingsModal) {
-  settingsModal.addEventListener('click', function(e) {
-    if (e.target === settingsModal) settingsModal.classList.remove('active');
-  });
-}
-
-function updateStatusDisplay() {
-  var statusEl = document.getElementById('status-content');
-  if (!statusEl) return;
-  var geminiKey = localStorage.getItem('gemini_api_key');
-  var estatKey = localStorage.getItem('estat_app_id');
-  var html = '';
-
-  if (geminiKey) {
-    html += '<div class="status-item ok">✅ Gemini API Key 設定済</div>';
-  } else {
-    html += '<div class="status-item ng">❌ Gemini API Key 未設定</div>';
-  }
-
-  if (estatKey) {
-    html += '<div class="status-item ok">✅ e-Stat App ID 設定済（政府統計使用）</div>';
-  } else {
-    html += '<div class="status-item warn">⚠️ e-Stat App ID 未設定（AI推計モード）</div>';
-  }
-
-  html += '<div class="status-item ok">🤖 AI Model: Gemini 2.0 Flash</div>';
-  statusEl.innerHTML = html;
-}
+// Workerプロキシ経由のため、API設定モーダルは不要
+// ステータス表示のみ
 
 // ---- Gemini API via Cloudflare Worker Proxy (with throttle + auto-retry) ----
 var _lastGeminiCall = 0;
@@ -788,7 +705,7 @@ async function startAnalysis() {
       market: markets.length > 0 ? markets[0].data : {},
       crossAreaInsight: crossAreaInsight,
       timestamp: new Date().toISOString(),
-      data_source: estatAppId ? 'e-Stat + Gemini' : 'Gemini推計',
+      data_source: 'e-Stat + Gemini',
       extracted_addresses: extractedAddresses
     };
 
