@@ -1,5 +1,5 @@
 /* ========================================
-   AIエリア分析 v4.0 - Design System
+   不動産市場把握AI - Design System
    ======================================== */
 
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;600;700;900&family=Inter:wght@300;400;500;600;700&display=swap');
@@ -1518,27 +1518,4 @@ body {
   .result-card__body { padding: 10px; font-size: 11px; }
   .header__actions { gap: 8px; }
 }
-
-/* ========================================
-   Industry Badge & Theme
-   ======================================== */
-.industry-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 12px;
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 700;
-  color: #fff;
-  white-space: nowrap;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-  transition: var(--transition);
-}
-
-.industry-badge:hover {
-  transform: scale(1.05);
-  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
-}
-
 
