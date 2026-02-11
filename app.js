@@ -4,7 +4,7 @@
 // ========================================
 
 // Cloudflare Worker Proxy (APIキー秘匿)
-var WORKER_BASE = 'https://house-search-proxy.banma878.workers.dev';
+var WORKER_BASE = 'https://house-search-proxy.ai-fudosan.workers.dev';
 var CORS_PROXIES = [
   { name: 'corsproxy.io', build: function(u) { return 'https://corsproxy.io/?' + encodeURIComponent(u); } },
   { name: 'allorigins', build: function(u) { return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u); } },
