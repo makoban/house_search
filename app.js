@@ -1,6 +1,6 @@
 ﻿// ========================================
-// 不動産市場把握AI v3.8 - Cloudflare Workers Proxy
-// ブラウザから直接Gemini API + e-Stat APIを呼び出す
+// AIエリア分析 v4.0 — 全業種対応版
+// Cloudflare Workers Proxy経由でGemini API + e-Stat API
 // ========================================
 
 // Cloudflare Worker Proxy (APIキー秘匿)
@@ -191,6 +191,62 @@ async function fetchEstatHousing(prefecture) {
     console.warn('[e-Stat Housing] Error:', e);
     return null;
   }
+}
+
+// ---- e-Stat Generic Query via Cloudflare Worker Proxy (v4.0) ----
+async function fetchEstatGeneric(statsDataId, cdArea, limit) {
+  if (!statsDataId) return null;
+  try {
+    var url = WORKER_BASE + '/api/estat/query' +
+      '?statsDataId=' + statsDataId +
+      '&cdArea=' + (cdArea || '') +
+      '&limit=' + (limit || '100');
+
+    var res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    if (!res.ok) return null;
+    var data = await res.json();
+
+    var result = data.GET_STATS_DATA && data.GET_STATS_DATA.STATISTICAL_DATA;
+    if (!result || !result.DATA_INF || !result.DATA_INF.VALUE) return null;
+    return result.DATA_INF.VALUE;
+  } catch (e) {
+    console.warn('[e-Stat Generic] Error:', e);
+    return null;
+  }
+}
+
+// 業種別e-Statデータを一括取得
+async function fetchEstatForIndustry(industryId, prefCode, cityCode) {
+  var config = INDUSTRY_CONFIG[industryId];
+  if (!config) config = INDUSTRY_CONFIG['other'];
+
+  var results = {};
+
+  // 共通データ: 人口・世帯（既存関数を利用）
+  var pref = null;
+  for (var p in PREFECTURE_CODES) {
+    if (PREFECTURE_CODES[p] === prefCode) { pref = p; break; }
+  }
+  if (pref) {
+    results.population = await fetchEstatPopulation(pref, cityCode || '');
+  }
+
+  // 業種別追加データ
+  if (config.estatDataSets && config.estatDataSets.length > 0) {
+    for (var i = 0; i < config.estatDataSets.length; i++) {
+      var ds = config.estatDataSets[i];
+      addLog('  e-Stat: ' + ds.name + ' を取得中...', 'info');
+      var rawValues = await fetchEstatGeneric(ds.id, prefCode + '000');
+      if (rawValues) {
+        results[ds.key] = rawValues;
+        addLog('  e-Stat: ' + ds.name + ' 取得成功 (' + rawValues.length + '件)', 'success');
+      } else {
+        addLog('  e-Stat: ' + ds.name + ' データなし', 'info');
+      }
+    }
+  }
+
+  return results;
 }
 
 // ---- Fetch Page via CORS Proxy ----
@@ -509,6 +565,17 @@ async function startAnalysis() {
     var analysisRaw = await callGemini(analysisPrompt);
     var analysis = parseJSON(analysisRaw);
     addLog('分析完了: ' + ((analysis.company && analysis.company.name) || '企業情報取得'), 'success');
+
+    // 業種判定結果を取得
+    var industryInfo = analysis.industry || {};
+    var industryId = industryInfo.id || 'other';
+    if (!INDUSTRY_CONFIG[industryId]) industryId = 'other';
+    var industryConfig = INDUSTRY_CONFIG[industryId];
+    addLog('業種判定: ' + industryConfig.icon + ' ' + industryConfig.name +
+      (industryInfo.confidence ? ' (確信度: ' + Math.round(industryInfo.confidence * 100) + '%)' : '') +
+      (industryInfo.sub_category ? ' [' + industryInfo.sub_category + ']' : ''), 'success');
+    if (industryInfo.reason) addLog('  判定理由: ' + industryInfo.reason, 'info');
+
     completeStep('step-analyze');
 
     // Step 2.5: AI事業所フィルタリング
@@ -616,19 +683,21 @@ async function startAnalysis() {
       var area = uniqueAreas[aIdx];
       addLog('[' + (aIdx+1) + '/' + uniqueAreas.length + '] エリアデータ取得: ' + area.label);
 
-      // e-Stat data (per prefecture) - Workerプロキシ経由
-      var areaEstatPop = null;
-      var areaEstatHousing = null;
-      if (area.prefecture) {
-        areaEstatPop = await fetchEstatPopulation(area.prefecture, area.city);
-        areaEstatHousing = await fetchEstatHousing(area.prefecture);
+      // 業種別e-Statデータ取得
+      var prefCode = PREFECTURE_CODES[area.prefecture];
+      var estatDataForArea = {};
+      if (prefCode) {
+        estatDataForArea = await fetchEstatForIndustry(industryId, prefCode, area.city);
       }
 
-      var marketPrompt = buildMarketPromptForArea(analysis, areaEstatPop, areaEstatHousing, area);
+      // 業種別プロンプトでAI分析
+      var prompt = getIndustryPrompt(industryId);
+      var marketPrompt = prompt.market(analysis, estatDataForArea, area);
       var marketRaw = await callGemini(marketPrompt);
       var marketData = parseJSON(marketRaw);
 
       // e-Statデータをマージ
+      var areaEstatPop = estatDataForArea.population;
       if (areaEstatPop && areaEstatPop.from_estat) {
         if (!marketData.population) marketData.population = {};
         marketData.population.total_population = areaEstatPop.total_population;
@@ -650,38 +719,27 @@ async function startAnalysis() {
         var summaryForAI = markets.map(function(mkt) {
           var d = mkt.data || {};
           var pop = d.population || {};
-          var con = d.construction || {};
-          var hou = d.housing || {};
-          var lp = d.land_price || {};
-          var hp = d.home_prices || {};
           var comp = d.competition || {};
           var pot = d.potential || {};
-          return {
+          var summary = {
             area: mkt.area.label,
             isHQ: mkt.area.isHQ || false,
             population: pop.total_population || 0,
-            households: pop.households || 0,
-            age30_45_pct: pop.age_30_45_pct || 0,
-            construction_total: con.total || 0,
-            ownership_rate: hou.ownership_rate || 0,
-            vacancy_rate: hou.vacancy_rate || 0,
-            land_tsubo: lp.residential_tsubo || 0,
-            avg_home_price: hp.avg_price || 0,
-            competitors: comp.total_companies || 0,
-            annual_converts: pot.annual_converts || 0,
-            per_company: pot.per_company || 0
+            households: pop.households || 0
           };
+          // 業種別データをフラット化して追加
+          for (var key in d) {
+            if (key === 'area_name' || key === 'population') continue;
+            if (typeof d[key] === 'object') {
+              for (var subKey in d[key]) {
+                summary[key + '_' + subKey] = d[key][subKey];
+              }
+            }
+          }
+          return summary;
         });
-        var crossPrompt = '以下は同一企業の複数事業所がある各エリアの市場データです。経営層向けに分析してください。\n\n' +
-          JSON.stringify(summaryForAI, null, 2) + '\n\n' +
-          '以下のJSON形式で回答してください:\n' +
-          '{\n' +
-          '  "opportunity_ranking": [{"rank":1,"area":"エリア名","reason":"理由(50字以内)","score":85},...],\n' +
-          '  "strategic_summary": "全体の戦略的要約(200字以内)",\n' +
-          '  "sales_advice": "営業チームへのアドバイス(200字以内)",\n' +
-          '  "risk_areas": "リスクのあるエリアと理由(100字以内)",\n' +
-          '  "growth_areas": "成長が見込めるエリアと理由(100字以内)"\n' +
-          '}';
+        var crossPromptFn = getIndustryPrompt(industryId);
+        var crossPrompt = crossPromptFn.crossArea(analysis, summaryForAI);
         var crossRaw = await callGemini(crossPrompt);
         crossAreaInsight = parseJSON(crossRaw);
         addLog('横断分析完了', 'success');
@@ -700,6 +758,9 @@ async function startAnalysis() {
     analysisData = {
       url: url,
       company: analysis.company || {},
+      industry: industryInfo,
+      industryId: industryId,
+      industryConfig: industryConfig,
       location: analysis.location || {},
       markets: markets,
       market: markets.length > 0 ? markets[0].data : {},
@@ -732,12 +793,14 @@ function buildAnalysisPrompt(url, content) {
     ? '\n以下はWebサイトから取得したテキストの一部です:\n---\n' + content + '\n---'
     : '\nWebサイトの内容は取得できませんでしたが、URLから推測してください。';
 
-  return 'あなたは不動産・住宅業界の市場分析の専門家です。\n' +
+  return 'あなたは企業分析と市場調査の専門家です。\n' +
     '以下のURLの企業について分析してください。\n\n' +
     'URL: ' + url + '\n' +
     contentSection + '\n\n' +
     '重要: 住所は必ずWebサイトの情報から特定してください。会社概要ページやフッターに記載があります。\n' +
     '複数の事業所がある場合、本社の住所を"address"に、他の拠点は"branches"にリストしてください。\n\n' +
+    '【業種判定】以下の業種カテゴリから最も適切なものを1つ選択し、"industry"フィールドに設定してください:\n' +
+    INDUSTRY_LIST_FOR_PROMPT + '\n\n' +
     '以下のJSON形式で回答してください。マークダウンのコードブロックで囲まず、純粋JSONのみ返してください:\n' +
     '{\n' +
     '  "company": {\n' +
@@ -748,10 +811,16 @@ function buildAnalysisPrompt(url, content) {
     '    ],\n' +
     '    "business_type": "事業内容（簡潔に）",\n' +
     '    "main_services": "主力サービス・商品",\n' +
-    '    "is_real_estate": true,\n' +
     '    "strengths": "強み・特徴（100文字以内）",\n' +
     '    "weaknesses": "改善余地・課題（100文字以内）",\n' +
     '    "keywords": ["キーワード1", "キーワード2", "キーワード3"]\n' +
+    '  },\n' +
+    '  "industry": {\n' +
+    '    "id": "業種カテゴリID（例: restaurant, medical, beauty）",\n' +
+    '    "name": "業種名",\n' +
+    '    "confidence": 0.95,\n' +
+    '    "sub_category": "サブカテゴリ（例: カフェ、整形外科）",\n' +
+    '    "reason": "判定理由（50字以内）"\n' +
     '  },\n' +
     '  "location": {\n' +
     '    "prefecture": "本社の都道府県",\n' +
@@ -922,6 +991,152 @@ function parseJSON(text) {
   }
 }
 
+// ---- 業種別比較テーブル生成 ----
+function buildIndustryComparisonTable(markets, industryId) {
+  if (!markets || markets.length === 0) return '';
+  var config = INDUSTRY_CONFIG[industryId] || INDUSTRY_CONFIG['other'];
+
+  // 業種別の列定義を動的に生成
+  var columns = [
+    { key: 'population.total_population', label: '人口', format: 'number' },
+    { key: 'population.households', label: '世帯数', format: 'number' }
+  ];
+
+  // 業種別の主要KPIを列に追加
+  var template = config.marketJsonTemplate || {};
+  for (var section in template) {
+    if (section === 'population') continue;
+    var fields = template[section];
+    var fieldCount = 0;
+    for (var field in fields) {
+      if (fieldCount >= 2) break; // 各セクション最大2フィールド
+      var val = fields[field];
+      if (field === 'source' || field === 'ai_insight') continue;
+      var label = field.replace(/_/g, ' ');
+      if (typeof val === 'number') {
+        columns.push({ key: section + '.' + field, label: label, format: val < 1 ? 'pct' : 'number' });
+      } else if (typeof val === 'string' && val.indexOf('%') >= 0) {
+        columns.push({ key: section + '.' + field, label: label, format: 'text' });
+      }
+      fieldCount++;
+    }
+    if (columns.length >= 8) break; // 最大8列
+  }
+
+  var html = '<div style="overflow-x:auto; margin-bottom:20px;">' +
+    '<table class="data-table" style="font-size:11px; width:100%; min-width:' + (columns.length * 90) + 'px;">' +
+    '<thead><tr style="background:rgba(99,102,241,0.1);">' +
+    '<th style="text-align:left;">エリア</th>';
+  columns.forEach(function(col) {
+    html += '<th>' + escapeHtml(col.label) + '</th>';
+  });
+  html += '</tr></thead><tbody>';
+
+  var totals = {};
+  columns.forEach(function(col) { totals[col.key] = 0; });
+  var cnt = 0;
+
+  markets.forEach(function(mkt) {
+    var d = mkt.data || {};
+    var icon = (mkt.area && mkt.area.isHQ) ? '🏢' : '📍';
+    var label = mkt.area ? mkt.area.label : 'エリア';
+    html += '<tr><td style="font-weight:600; white-space:nowrap;">' + icon + ' ' + escapeHtml(label) + '</td>';
+    columns.forEach(function(col) {
+      var parts = col.key.split('.');
+      var val = d;
+      for (var i = 0; i < parts.length; i++) {
+        val = val ? val[parts[i]] : 0;
+      }
+      val = val || 0;
+      if (typeof val === 'number') totals[col.key] += val;
+      var display = col.format === 'number' ? formatNumber(val) : (col.format === 'pct' ? val + '%' : (val || '—'));
+      html += '<td style="text-align:right;">' + display + '</td>';
+    });
+    html += '</tr>';
+    cnt++;
+  });
+
+  var n = cnt || 1;
+  html += '<tr style="background:rgba(16,185,129,0.08); font-weight:700;">' +
+    '<td>平均</td>';
+  columns.forEach(function(col) {
+    var avg = Math.round(totals[col.key] / n);
+    var display = col.format === 'number' ? formatNumber(avg) : (col.format === 'pct' ? (totals[col.key] / n).toFixed(1) + '%' : '—');
+    html += '<td style="text-align:right;">' + display + '</td>';
+  });
+  html += '</tr></tbody></table></div>';
+  return html;
+}
+
+// ---- 業種別エリアデータセクション生成 ----
+function renderIndustryDataSections(marketData, industryId) {
+  var html = '';
+  var config = INDUSTRY_CONFIG[industryId] || INDUSTRY_CONFIG['other'];
+  var template = config.marketJsonTemplate || {};
+  var sectionNum = 2; // ①は人口で既出
+
+  // セクション名のマッピング
+  var sectionLabels = {
+    construction: '🏗️ 建築着工統計', housing: '🏡 住宅統計', land_price: '🗺️ 土地相場',
+    home_prices: '🏠 住宅相場', dining_market: '🍽️ 飲食市場', retail_market: '🛒 小売市場',
+    consumer_spending: '💰 消費支出', medical_market: '🏥 医療市場', dental_market: '🦷 歯科市場',
+    beauty_market: '💇 美容市場', fitness_market: '💪 フィットネス市場', education_market: '📚 教育市場',
+    care_market: '👶 保育・介護市場', it_market: '💻 IT市場', consulting_market: '📋 コンサルティング市場',
+    manufacturing_market: '🏭 製造業市場', logistics_market: '🚚 物流市場', hotel_market: '🏨 宿泊市場',
+    tourism: '✈️ 観光', wedding_market: '💒 ブライダル市場', auto_market: '🚗 自動車市場',
+    finance_market: '🏦 金融市場', agri_market: '🌾 農業市場', ad_market: '📢 広告市場',
+    general_market: '🏢 市場概要', consumer_profile: '👤 消費者プロファイル',
+    demographics: '📊 人口動態', competition: '🏢 競合分析', potential: '🎯 市場ポテンシャル'
+  };
+
+  for (var section in template) {
+    if (!marketData[section]) continue;
+    var data = marketData[section];
+    var label = sectionLabels[section] || ('📊 ' + section);
+
+    html += '<div style="margin-bottom:16px;">' +
+      '<div style="font-size:14px; font-weight:700; margin-bottom:8px;">' + label + '</div>';
+
+    // フィールドが4つ以下ならstat-grid、多ければテーブル
+    var fields = [];
+    for (var key in data) {
+      if (key === 'source' || key === 'ai_insight') continue;
+      fields.push({ key: key, value: data[key] });
+    }
+
+    if (fields.length <= 4) {
+      html += '<div class="stat-grid">';
+      fields.forEach(function(f) {
+        var display = typeof f.value === 'number' ? formatNumber(f.value) : (f.value || '—');
+        var fieldLabel = f.key.replace(/_/g, ' ');
+        html += '<div class="stat-box"><div class="stat-box__value">' + display + '</div>' +
+          '<div class="stat-box__label">' + escapeHtml(fieldLabel) + '</div></div>';
+      });
+      html += '</div>';
+    } else {
+      html += '<table class="data-table">';
+      fields.forEach(function(f) {
+        var display = typeof f.value === 'number' ? formatNumber(f.value) : (f.value || '—');
+        var fieldLabel = f.key.replace(/_/g, ' ');
+        html += '<tr><th>' + escapeHtml(fieldLabel) + '</th><td>' + display + '</td></tr>';
+      });
+      html += '</table>';
+    }
+
+    // ai_insightがあれば表示
+    if (data.ai_insight) {
+      html += '<div class="summary-box" style="margin-top:10px">' +
+        '<div class="summary-box__title">📌 AIからの提言</div>' +
+        '<div class="summary-box__text">' + escapeHtml(data.ai_insight) + '</div></div>';
+    }
+
+    html += '</div>';
+    sectionNum++;
+  }
+
+  return html;
+}
+
 // ---- Render Results ----
 function renderResults(data) {
   var company = data.company;
@@ -946,8 +1161,20 @@ function renderResults(data) {
     '<tr><th>企業名</th><td>' + escapeHtml(company.name || '—') + '</td></tr>' +
     '<tr><th>本社所在地</th><td>' + escapeHtml(company.address || '—') + '</td></tr>' +
     '<tr><th>事業内容</th><td>' + escapeHtml(company.business_type || '—') + '</td></tr>' +
-    '<tr><th>主力サービス</th><td>' + escapeHtml(company.main_services || '—') + '</td></tr>' +
-    '<tr><th>不動産事業</th><td>' + (company.is_real_estate ? '<span class="highlight--green">✅ 該当</span>' : '❌ 非該当') + '</td></tr>' +
+    '<tr><th>主力サービス</th><td>' + escapeHtml(company.main_services || '—') + '</td></tr>';
+
+  // 業種判定バッジ
+  var ind = data.industry || {};
+  var indConfig = data.industryConfig || INDUSTRY_CONFIG[data.industryId || 'other'] || INDUSTRY_CONFIG['other'];
+  var indBadge = '<span class="industry-badge" style="background:' + (indConfig.color || '#6b7280') + '; color:#fff; padding:4px 12px; border-radius:20px; font-size:12px; font-weight:700;">' +
+    indConfig.icon + ' ' + indConfig.name + '</span>';
+  if (ind.confidence) {
+    indBadge += ' <span style="font-size:11px; color:var(--text-muted);">(確信度: ' + Math.round(ind.confidence * 100) + '%)</span>';
+  }
+  if (ind.sub_category) {
+    indBadge += ' <span style="font-size:11px; color:var(--text-secondary);">[' + escapeHtml(ind.sub_category) + ']</span>';
+  }
+  html += '<tr><th>判定業種</th><td>' + indBadge + '</td></tr>' +
     '</table>';
 
   // 事業所一覧（クロールテキストから直接抽出した住所を表示）
@@ -1034,74 +1261,16 @@ function renderResults(data) {
       '<div class="result-card__body">';
 
     // --- 比較テーブル ---
-    html += '<div style="overflow-x:auto; margin-bottom:20px;">' +
-      '<table class="data-table" style="font-size:11px; width:100%; min-width:700px;">' +
-      '<thead><tr style="background:rgba(99,102,241,0.1);">' +
-      '<th style="text-align:left;">エリア</th>' +
-      '<th>人口</th><th>世帯数</th><th>着工(戸/年)</th>' +
-      '<th>持家率</th><th>空家率</th><th>坪単価(万)</th>' +
-      '<th>住宅平均(万)</th><th>競合数</th><th>年間転換</th>' +
-      '</tr></thead><tbody>';
-
-    var totPop=0,totHH=0,totCon=0,totOwn=0,totVac=0,totLand=0,totPrice=0,totComp=0,totConv=0,cnt=0;
-    markets.forEach(function(mkt) {
-      var d = mkt.data || {};
-      var pop = (d.population||{}).total_population||0;
-      var hh = (d.population||{}).households||0;
-      var con = (d.construction||{}).total||0;
-      var own = (d.housing||{}).ownership_rate||0;
-      var vac = (d.housing||{}).vacancy_rate||0;
-      var landRaw = (d.land_price||{}).residential_tsubo||0;
-      var land = landRaw > 10000 ? Math.round(landRaw/10000) : landRaw;
-      var priceRaw = (d.home_prices||{}).avg_price||0;
-      var price = priceRaw > 50000 ? Math.round(priceRaw/10000) : priceRaw;
-      var comp = (d.competition||{}).total_companies||0;
-      var conv = (d.potential||{}).annual_converts||0;
-      totPop+=pop;totHH+=hh;totCon+=con;totOwn+=own;totVac+=vac;totLand+=land;totPrice+=price;totComp+=comp;totConv+=conv;cnt++;
-      var icon = (mkt.area && mkt.area.isHQ) ? '🏢' : '📍';
-      var label = mkt.area ? mkt.area.label : 'エリア';
-      html += '<tr>' +
-        '<td style="font-weight:600; white-space:nowrap;">' + icon + ' ' + escapeHtml(label) + '</td>' +
-        '<td style="text-align:right;">' + formatNumber(pop) + '</td>' +
-        '<td style="text-align:right;">' + formatNumber(hh) + '</td>' +
-        '<td style="text-align:right;">' + formatNumber(con) + '</td>' +
-        '<td style="text-align:right;">' + own + '%</td>' +
-        '<td style="text-align:right;">' + vac + '%</td>' +
-        '<td style="text-align:right;">' + formatNumber(land) + '</td>' +
-        '<td style="text-align:right;">' + formatNumber(price) + '</td>' +
-        '<td style="text-align:right;">' + comp + '</td>' +
-        '<td style="text-align:right; font-weight:700; color:#10b981;">' + formatNumber(conv) + '</td>' +
-        '</tr>';
-    });
-    var n = cnt||1;
-    html += '<tr style="background:rgba(16,185,129,0.08); font-weight:700;">' +
-      '<td>合計</td>' +
-      '<td style="text-align:right;">' + formatNumber(totPop) + '</td>' +
-      '<td style="text-align:right;">' + formatNumber(totHH) + '</td>' +
-      '<td style="text-align:right;">' + formatNumber(totCon) + '</td>' +
-      '<td></td><td></td><td></td><td></td>' +
-      '<td style="text-align:right;">' + totComp + '</td>' +
-      '<td style="text-align:right; color:#10b981;">' + formatNumber(totConv) + '</td></tr>';
-    html += '<tr style="background:rgba(59,130,246,0.08); font-style:italic;">' +
-      '<td>平均</td>' +
-      '<td style="text-align:right;">' + formatNumber(Math.round(totPop/n)) + '</td>' +
-      '<td style="text-align:right;">' + formatNumber(Math.round(totHH/n)) + '</td>' +
-      '<td style="text-align:right;">' + formatNumber(Math.round(totCon/n)) + '</td>' +
-      '<td style="text-align:right;">' + (totOwn/n).toFixed(1) + '%</td>' +
-      '<td style="text-align:right;">' + (totVac/n).toFixed(1) + '%</td>' +
-      '<td style="text-align:right;">' + formatNumber(Math.round(totLand/n)) + '</td>' +
-      '<td style="text-align:right;">' + formatNumber(Math.round(totPrice/n)) + '</td>' +
-      '<td style="text-align:right;">' + Math.round(totComp/n) + '</td>' +
-      '<td style="text-align:right;">' + formatNumber(Math.round(totConv/n)) + '</td></tr>';
-    html += '</tbody></table></div>';
+    // --- 業種別比較テーブル ---
+    html += buildIndustryComparisonTable(markets, data.industryId || 'other');
 
     // --- Chart.jsグラフ用Canvas ---
     html += '<div class="chart-grid">' +
       '<div style="background:rgba(30,41,59,0.5); border-radius:12px; padding:16px; border:1px solid rgba(99,102,241,0.1);">' +
-      '<div style="font-size:13px; font-weight:700; margin-bottom:8px; color:var(--text-primary);">📈 人口 × 年間転換世帯数</div>' +
+      '<div style="font-size:13px; font-weight:700; margin-bottom:8px; color:var(--text-primary);">📈 人口 × 主要KPI</div>' +
       '<div style="position:relative; height:220px;"><canvas id="chart-pop-conv"></canvas></div></div>' +
       '<div style="background:rgba(30,41,59,0.5); border-radius:12px; padding:16px; border:1px solid rgba(99,102,241,0.1);">' +
-      '<div style="font-size:13px; font-weight:700; margin-bottom:8px; color:var(--text-primary);">🏗️ 着工戸数 × 競合数</div>' +
+      '<div style="font-size:13px; font-weight:700; margin-bottom:8px; color:var(--text-primary);">📊 業種別KPI比較</div>' +
       '<div style="position:relative; height:220px;"><canvas id="chart-con-comp"></canvas></div></div>' +
       '</div>';
 
@@ -1189,81 +1358,8 @@ function renderResults(data) {
           '</div></div>';
       }
 
-      // ② 建築着工
-      if (m.construction) {
-        var con = m.construction;
-        html += '<div style="margin-bottom:16px;"><div style="font-size:14px; font-weight:700; margin-bottom:8px;">🏗️ ② 建築着工統計</div>' +
-          '<table class="data-table">' +
-          '<tr><th>持家 着工戸数</th><td><span class="highlight">' + formatNumber(con.owner_occupied) + '</span> 戸/年</td></tr>' +
-          '<tr><th>全体 着工戸数</th><td>' + formatNumber(con.total) + ' 戸/年</td></tr>' +
-          '<tr><th>前年比</th><td>' + (con.yoy_change || '—') + '</td></tr>' +
-          '</table></div>';
-      }
-
-      // ③ 持ち家率
-      if (m.housing) {
-        var h = m.housing;
-        html += '<div style="margin-bottom:16px;"><div style="font-size:14px; font-weight:700; margin-bottom:8px;">🏡 ③ 持ち家率・空き家率</div>' +
-          '<div class="stat-grid">' +
-          '<div class="stat-box"><div class="stat-box__value">' + (h.ownership_rate || '—') + '%</div><div class="stat-box__label">持ち家率</div></div>' +
-          '<div class="stat-box"><div class="stat-box__value">' + (h.vacancy_rate || '—') + '%</div><div class="stat-box__label">空き家率</div></div>' +
-          '<div class="stat-box"><div class="stat-box__value">' + (h.rental_vacancy || '—') + '%</div><div class="stat-box__label">貸家空室率</div></div>' +
-          '</div></div>';
-      }
-
-      // ④ 土地相場
-      if (m.land_price) {
-        var lp = m.land_price;
-        html += '<div style="margin-bottom:16px;"><div style="font-size:14px; font-weight:700; margin-bottom:8px;">🗺️ ④ 土地相場</div>' +
-          '<table class="data-table">' +
-          '<tr><th>住宅地 平均坪単価</th><td><span class="highlight">' + (lp.residential_tsubo ? '¥' + formatNumber(lp.residential_tsubo) : '—') + '</span></td></tr>' +
-          '<tr><th>住宅地 平均㎡単価</th><td>¥' + formatNumber(lp.residential_sqm) + '/㎡</td></tr>' +
-          '<tr><th>商業地 平均㎡単価</th><td>¥' + formatNumber(lp.commercial_sqm) + '/㎡</td></tr>' +
-          '<tr><th>前年比</th><td>' + (lp.yoy_change || '—') + '</td></tr>' +
-          '</table></div>';
-      }
-
-      // ⑤ 新築住宅相場
-      if (m.home_prices) {
-        var hp = m.home_prices;
-        // 万円単位サニタイズ（Geminiが円単位で返すことがあるため）
-        var avgP = hp.avg_price || 0;
-        if (avgP > 50000) avgP = Math.round(avgP / 10000); // 円→万円変換
-        var reqInc = hp.required_income || 0;
-        if (reqInc > 50000) reqInc = Math.round(reqInc / 10000);
-        html += '<div style="margin-bottom:16px;"><div style="font-size:14px; font-weight:700; margin-bottom:8px;">🏠 ⑤ 新築住宅相場</div>' +
-          '<table class="data-table">' +
-          '<tr><th>新築一戸建て 平均</th><td><span class="highlight">' + (avgP ? '¥' + formatNumber(avgP) + '万円' : '—') + '</span></td></tr>' +
-          '<tr><th>価格帯</th><td>' + (hp.price_range || '—') + '</td></tr>' +
-          '<tr><th>目安年収</th><td>' + (reqInc ? '¥' + formatNumber(reqInc) + '万円' : '—') + '</td></tr>' +
-          '</table></div>';
-      }
-
-      // ⑥ 競合分析
-      if (m.competition) {
-        var comp = m.competition;
-        html += '<div style="margin-bottom:16px;"><div style="font-size:14px; font-weight:700; margin-bottom:8px;">🏢 ⑥ 競合分析</div>' +
-          '<div class="stat-grid">' +
-          '<div class="stat-box"><div class="stat-box__value">' + (comp.total_companies || '—') + '</div><div class="stat-box__label">工務店・HM数</div></div>' +
-          '<div class="stat-box"><div class="stat-box__value">' + (comp.local_builders || '—') + '</div><div class="stat-box__label">地場工務店</div></div>' +
-          '</div></div>';
-      }
-
-      // 潜在顧客数
-      if (m.potential) {
-        var pot = m.potential;
-        html += '<div style="margin-bottom:8px;"><div style="font-size:14px; font-weight:700; margin-bottom:8px;">🎯 潜在顧客数の試算</div>' +
-          '<table class="data-table">' +
-          '<tr><th>30〜45歳 世帯数</th><td>' + formatNumber(pot.target_households) + ' 世帯</td></tr>' +
-          '<tr><th>賃貸世帯数</th><td>' + formatNumber(pot.rental_households) + ' 世帯</td></tr>' +
-          '<tr><th>年間持ち家転換推定</th><td><span class="highlight">' + formatNumber(pot.annual_converts) + ' 世帯/年</span></td></tr>' +
-          '<tr><th>1社あたり年間獲得</th><td><span class="highlight--amber">' + (pot.per_company || '—') + ' 棟</span></td></tr>' +
-          '</table>';
-        if (pot.ai_insight) {
-          html += '<div class="summary-box" style="margin-top:10px"><div class="summary-box__title">📌 AIからの提言</div><div class="summary-box__text">' + escapeHtml(pot.ai_insight) + '</div></div>';
-        }
-        html += '</div>';
-      }
+      // 業種別データセクション（汎用レンダリング）
+      html += renderIndustryDataSections(m, data.industryId || 'other');
 
       html += '</div>'; // area-tab-content end
     });

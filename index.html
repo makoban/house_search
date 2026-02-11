@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>不動産市場把握AI - 商圏分析レポート自動生成</title>
-  <meta name="description" content="企業URLを入力するだけで、AIが事業分析・商圏の市場データ・潜在顧客数を自動レポート。工務店・不動産向け。">
+  <title>AIエリア分析 - 全業種対応商圏分析レポート自動生成</title>
+  <meta name="description" content="企業URLを入力するだけで、AIが業種を自動判定し、商圏の市場データ・潜在顧客数を自動レポート。20業種対応。">
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" defer></script>
@@ -20,11 +20,11 @@
   <header class="header">
     <div class="container header__inner">
       <div class="header__logo">
-        <div class="header__logo-icon">🏠</div>
-        <span class="header__logo-text">不動産市場把握AI</span>
+        <div class="header__logo-icon">📊</div>
+        <span class="header__logo-text">AIエリア分析</span>
       </div>
       <div class="header__actions">
-        <div class="header__badge">v3.8</div>
+        <div class="header__badge">v4.0</div>
       </div>
     </div>
   </header>
@@ -76,10 +76,10 @@
           <span class="hero__badge-dot"></span>
           AI-Powered Market Analysis
         </div>
-        <h1 class="hero__title">不動産市場把握<span>AI</span></h1>
+        <h1 class="hero__title">AIエリア分析<span>全業種対応</span></h1>
         <p class="hero__subtitle">
           企業のURLを入力するだけ。<br>
-          AIがWebサイトを解析し、商圏の市場データと潜在顧客を自動レポートします。
+          AIが業種を自動判定し、商圏の市場データと競合分析を自動レポートします。
         </p>
 
         <!-- Search Card -->
@@ -90,7 +90,7 @@
               type="url"
               id="url-input"
               class="search__input"
-              placeholder="https://example-koumuten.co.jp"
+              placeholder="https://example-company.co.jp"
               autocomplete="url"
             >
             <button id="analyze-btn" class="search__btn" onclick="startAnalysis()">
@@ -112,7 +112,7 @@
           <div class="feature-item">
             <div class="feature-item__icon">📊</div>
             <div class="feature-item__title">商圏データ</div>
-            <div class="feature-item__desc">人口・相場・競合を自動取得</div>
+            <div class="feature-item__desc">人口・競合・業種別KPIを取得</div>
           </div>
           <div class="feature-item">
             <div class="feature-item__icon">📄</div>
@@ -193,10 +193,12 @@
   <!-- Footer -->
   <footer class="footer">
     <div class="container">
-      <p class="footer__text">© 2026 不動産市場把握AI v3.8 — Powered by Gemini 2.0 Flash + e-Stat</p>
+      <p class="footer__text">© 2026 AIエリア分析 v4.0 — Powered by Gemini 2.0 Flash + e-Stat | 全業種対応</p>
     </div>
   </footer>
 
+  <script src="industry-config.js"></script>
+  <script src="industry-prompts.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
