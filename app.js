@@ -128,9 +128,22 @@ function updateStatusDisplay() {
   statusEl.innerHTML = html;
 }
 
-// ---- Gemini API via Cloudflare Worker Proxy (with auto-retry on 429) ----
+// ---- Gemini API via Cloudflare Worker Proxy (with throttle + auto-retry) ----
+var _lastGeminiCall = 0;
+var _geminiMinInterval = 4000; // 最低4秒間隔（15RPM対策）
+
 async function callGemini(prompt) {
-  var maxRetries = 3;
+  // スロットリング: 前回呼び出しから最低4秒空ける
+  var now = Date.now();
+  var elapsed = now - _lastGeminiCall;
+  if (_lastGeminiCall > 0 && elapsed < _geminiMinInterval) {
+    var waitMs = _geminiMinInterval - elapsed;
+    addLog('  ⏳ API間隔調整 ' + Math.ceil(waitMs/1000) + '秒...', 'info');
+    await new Promise(function(r) { setTimeout(r, waitMs); });
+  }
+  _lastGeminiCall = Date.now();
+
+  var maxRetries = 5;
   for (var attempt = 0; attempt <= maxRetries; attempt++) {
     var res = await fetch(WORKER_BASE + '/api/gemini', {
       method: 'POST',
@@ -139,9 +152,10 @@ async function callGemini(prompt) {
     });
 
     if (res.status === 429 && attempt < maxRetries) {
-      var waitSec = 5 * (attempt + 1);
+      var waitSec = 10 * (attempt + 1);
       addLog('  API制限検知、' + waitSec + '秒後にリトライ... (' + (attempt + 1) + '/' + maxRetries + ')', 'info');
       await new Promise(function(r) { setTimeout(r, waitSec * 1000); });
+      _lastGeminiCall = Date.now();
       continue;
     }
 
