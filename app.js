@@ -91,7 +91,7 @@ async function fetchEstatPopulation(prefecture, city) {
   var prefCode = PREFECTURE_CODES[prefecture];
   if (!prefCode) return null;
 
-  addLog('e-Stat APIから人口データを取得中...', 'info');
+  addLog('政府統計APIから人口データを取得中...', 'info');
 
   try {
     var url = WORKER_BASE + '/api/estat/population' +
@@ -115,7 +115,7 @@ async function fetchEstatPopulation(prefecture, city) {
     }
 
     if (!result || !result.DATA_INF || !result.DATA_INF.VALUE) {
-      addLog('e-Stat: 該当データがありません。AI推計に切り替えます。', 'info');
+      addLog('該当データがありません。AI推計に切り替えます。', 'info');
       return null;
     }
 
@@ -136,7 +136,7 @@ async function fetchEstatPopulation(prefecture, city) {
     }
 
     if (population) {
-      addLog('e-Stat: 人口データ取得成功 (' + formatNumber(population) + '人)', 'success');
+      addLog('人口データ取得成功 (' + formatNumber(population) + '人)', 'success');
       return {
         total_population: population,
         households: households || Math.round(population / 2.3),
@@ -148,7 +148,7 @@ async function fetchEstatPopulation(prefecture, city) {
     return null;
   } catch (e) {
     console.warn('[e-Stat] Error:', e);
-    addLog('e-Stat API接続エラー: ' + e.message + '。AI推計に切り替えます。', 'info');
+    addLog('統計API接続エラー: ' + e.message + '。AI推計に切り替えます。', 'info');
     return null;
   }
 }
@@ -182,7 +182,7 @@ async function fetchEstatHousing(prefecture) {
     }
 
     if (totalHousing > 0) {
-      addLog('e-Stat: 住宅統計データ取得成功', 'success');
+      addLog('住宅統計データ取得成功', 'success');
       return { total_housing: totalHousing, source: 'e-Stat 住宅・土地統計', from_estat: true };
     }
 
@@ -580,7 +580,7 @@ async function startAreaOnlyAnalysis(area, industryId) {
 
   addLog('🏠 不動産エリア分析を開始します...', 'info');
   addLog('対象エリア: ' + area.fullLabel, 'info');
-  addLog('APIプロキシ経由でGemini + e-Statを使用', 'info');
+  addLog('APIプロキシ経由で分析を開始', 'info');
 
   try {
     // Step 1 skip (no web crawl)
@@ -596,11 +596,11 @@ async function startAreaOnlyAnalysis(area, industryId) {
     addLog('[1/1] エリアデータ取得: ' + area.fullLabel);
 
     // e-Stat人口データ
-    addLog('  e-Stat APIから人口データを取得中...', 'info');
+    addLog('  政府統計APIから人口データを取得中...', 'info');
     var estatPop = await fetchEstatPopulation(area.prefecture, area.city);
 
     // e-Stat住宅データ
-    addLog('  e-Stat APIから住宅データを取得中...', 'info');
+    addLog('  政府統計APIから住宅データを取得中...', 'info');
     var estatHousing = await fetchEstatHousing(area.prefecture);
 
     // 不動産用AI市場分析（①〜⑥フォーマット）
@@ -644,7 +644,7 @@ async function startAreaOnlyAnalysis(area, industryId) {
       market: marketData,
       crossAreaInsight: null,
       timestamp: new Date().toISOString(),
-      data_source: 'e-Stat + Gemini',
+      data_source: '政府統計 + AI',
       extracted_addresses: []
     };
 
@@ -674,7 +674,7 @@ async function startUrlAnalysis(url) {
   clearLogs();
 
   addLog('分析を開始します...', 'info');
-  addLog('APIプロキシ経由でGemini + e-Statを使用', 'info');
+  addLog('APIプロキシ経由で分析を開始', 'info');
 
   try {
     // Step 1: Crawl site (top + subpages)
@@ -693,7 +693,7 @@ async function startUrlAnalysis(url) {
 
     // Step 2: AI Business Analysis
     activateStep('step-analyze');
-    addLog('Gemini 2.0 Flash で事業内容を分析中...');
+    addLog('AIで事業内容を分析中...');
 
     var analysisPrompt = buildAnalysisPrompt(url, pageContent);
     var analysisRaw = await callGemini(analysisPrompt);
@@ -895,7 +895,7 @@ async function startUrlAnalysis(url) {
       market: markets.length > 0 ? markets[0].data : {},
       crossAreaInsight: crossAreaInsight,
       timestamp: new Date().toISOString(),
-      data_source: 'e-Stat + Gemini',
+      data_source: '政府統計 + AI',
       extracted_addresses: extractedAddresses
     };
 
@@ -1129,8 +1129,8 @@ function renderResults(data) {
   var html = '';
 
   // Data Source Badge
-  var sourceBadge = data.data_source === 'e-Stat + Gemini'
-    ? '<span style="background: linear-gradient(135deg, #10b981, #3b82f6); color:#fff; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:700;">📊 e-Stat実データ + AI分析</span>'
+  var sourceBadge = data.data_source === '政府統計 + AI'
+    ? '<span style="background: linear-gradient(135deg, #10b981, #3b82f6); color:#fff; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:700;">📊 実データ + AI分析</span>'
     : '<span style="background: var(--accent-gradient); color:#fff; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:700;">🤖 AI推計モード</span>';
 
   // Company Card / Area Card
@@ -1156,7 +1156,7 @@ function renderResults(data) {
       '<div class="result-card__icon">🏢</div>' +
       '<div>' +
       '<div class="result-card__title">' + escapeHtml(company.name || '企業分析') + '</div>' +
-      '<div class="result-card__subtitle">Gemini 2.0 Flash による事業内容分析 ' + sourceBadge + '</div>' +
+      '<div class="result-card__subtitle">AIによる事業内容分析 ' + sourceBadge + '</div>' +
       '</div></div>' +
       '<div class="result-card__body">' +
       '<table class="data-table">' +
