@@ -1526,7 +1526,7 @@ function renderResults(data) {
         var popSource = pop.source ? ' <span style="font-size:11px; color:var(--text-muted);">(' + escapeHtml(pop.source) + ')</span>' : '';
         html += '<div style="margin-bottom:16px;"><div style="font-size:14px; font-weight:700; margin-bottom:8px;">👥 ① 人口・世帯データ' + popSource + '</div>' +
           '<div class="stat-grid">' +
-          '<div class="stat-box"><div class="stat-box__value">' + formatNumber(pop.total_population) + '</div><div class="stat-box__label">総人口</div></div>' +
+          '<div class="stat-box"><div class="stat-box__value">' + formatNumber(pop.total_population) + '</div><div class="stat-box__label">総人口（人）</div></div>' +
           '<div class="stat-box"><div class="stat-box__value">' + formatNumber(pop.households) + '</div><div class="stat-box__label">世帯数</div></div>' +
           '<div class="stat-box"><div class="stat-box__value">' + (pop.age_30_45_pct || '—') + '%</div><div class="stat-box__label">30〜45歳</div></div>' +
           '<div class="stat-box"><div class="stat-box__value">' + (pop.elderly_pct || '—') + '%</div><div class="stat-box__label">65歳以上</div></div>' +
@@ -1577,7 +1577,7 @@ function renderResults(data) {
           html += '<div style="padding:10px; border-radius:8px; background:rgba(30,41,59,0.5); border:1px solid rgba(99,102,241,0.1); margin-bottom:8px;">' +
             '<div style="font-weight:700; font-size:12px; margin-bottom:4px;">🏚️ 中古戸建</div>' +
             '<table class="data-table">' +
-            '<tr><th>平均価格</th><td>' + (uh.avg_price ? formatNumber(uh.avg_price) + '万円' : '—') + '</td></tr>' +
+            '<tr><th>平均価格</th><td>' + (uh.avg_price ? formatNumber(uh.avg_price) + ' 万円' : '—') + '</td></tr>' +
             '<tr><th>年間流通件数</th><td>' + (uh.volume ? formatNumber(uh.volume) + '件' : '—') + '</td></tr>' +
             '<tr><th>平均築年数</th><td>' + (uh.avg_age ? uh.avg_age + '年' : '—') + '</td></tr>' +
             '</table>' +
@@ -1590,8 +1590,8 @@ function renderResults(data) {
           html += '<div style="padding:10px; border-radius:8px; background:rgba(30,41,59,0.5); border:1px solid rgba(99,102,241,0.1); margin-bottom:8px;">' +
             '<div style="font-weight:700; font-size:12px; margin-bottom:4px;">🔧 リフォーム市場</div>' +
             '<table class="data-table">' +
-            '<tr><th>市場規模</th><td>' + (rv.market_size ? formatNumber(rv.market_size) + '億円' : '—') + '</td></tr>' +
-            '<tr><th>平均工事費</th><td>' + (rv.avg_cost ? formatNumber(rv.avg_cost) + '万円' : '—') + '</td></tr>' +
+            '<tr><th>市場規模</th><td>' + (rv.market_size ? formatNumber(rv.market_size) + ' 億円' : '—') + '</td></tr>' +
+            '<tr><th>平均工事費</th><td>' + (rv.avg_cost ? formatNumber(rv.avg_cost) + ' 万円' : '—') + '</td></tr>' +
             '<tr><th>需要トレンド</th><td>' + (rv.demand_trend || '—') + '</td></tr>' +
             '</table>' +
             (rv.note ? '<div style="font-size:11px; color:var(--text-muted); margin-top:4px;">💬 ' + escapeHtml(rv.note) + '</div>' : '') +
@@ -1603,9 +1603,9 @@ function renderResults(data) {
           html += '<div style="padding:10px; border-radius:8px; background:rgba(30,41,59,0.5); border:1px solid rgba(99,102,241,0.1); margin-bottom:8px;">' +
             '<div style="font-weight:700; font-size:12px; margin-bottom:4px;">🏢 分譲マンション</div>' +
             '<table class="data-table">' +
-            '<tr><th>平均価格</th><td>' + (cs.avg_price ? formatNumber(cs.avg_price) + '万円' : '—') + '</td></tr>' +
+            '<tr><th>平均価格</th><td>' + (cs.avg_price ? formatNumber(cs.avg_price) + ' 万円' : '—') + '</td></tr>' +
             '<tr><th>年間供給戸数</th><td>' + (cs.supply ? formatNumber(cs.supply) + '戸' : '—') + '</td></tr>' +
-            '<tr><th>平均㎡単価</th><td>' + (cs.avg_sqm_price ? formatNumber(cs.avg_sqm_price) + '万円/㎡' : '—') + '</td></tr>' +
+            '<tr><th>平均㎡単価</th><td>' + (cs.avg_sqm_price ? formatNumber(cs.avg_sqm_price) + ' 万円/㎡' : '—') + '</td></tr>' +
             '</table>' +
             (cs.note ? '<div style="font-size:11px; color:var(--text-muted); margin-top:4px;">💬 ' + escapeHtml(cs.note) + '</div>' : '') +
             '</div>';
@@ -1631,9 +1631,9 @@ function renderResults(data) {
         var lp = m.land_price;
         html += '<div style="margin-bottom:16px;"><div style="font-size:14px; font-weight:700; margin-bottom:8px;">🗺️ ④ 土地相場</div>' +
           '<table class="data-table">' +
-          '<tr><th>住宅地 平均坪単価</th><td><span class="highlight">' + (lp.residential_tsubo ? '¥' + formatNumber(lp.residential_tsubo) : '—') + '</span></td></tr>' +
-          '<tr><th>住宅地 平均㎡単価</th><td>¥' + formatNumber(lp.residential_sqm) + '/㎡</td></tr>' +
-          '<tr><th>商業地 平均㎡単価</th><td>¥' + formatNumber(lp.commercial_sqm) + '/㎡</td></tr>' +
+          '<tr><th>住宅地 坪単価</th><td><span class="highlight">' + (lp.residential_tsubo ? formatNumber(lp.residential_tsubo) + ' 円/坪' : '—') + '</span></td></tr>' +
+          '<tr><th>住宅地 ㎡単価</th><td>' + formatNumber(lp.residential_sqm) + ' 円/㎡</td></tr>' +
+          '<tr><th>商業地 ㎡単価</th><td>' + formatNumber(lp.commercial_sqm) + ' 円/㎡</td></tr>' +
           '<tr><th>前年比</th><td>' + (lp.yoy_change || '—') + '</td></tr>' +
           '</table></div>';
       }
@@ -1648,9 +1648,9 @@ function renderResults(data) {
         if (reqInc > 50000) reqInc = Math.round(reqInc / 10000);
         html += '<div style="margin-bottom:16px;"><div style="font-size:14px; font-weight:700; margin-bottom:8px;">🏠 ⑤ 新築住宅相場</div>' +
           '<table class="data-table">' +
-          '<tr><th>新築一戸建て 平均</th><td><span class="highlight">' + (avgP ? '¥' + formatNumber(avgP) + '万円' : '—') + '</span></td></tr>' +
+          '<tr><th>新築一戸建て 平均</th><td><span class="highlight">' + (avgP ? formatNumber(avgP) + ' 万円' : '—') + '</span></td></tr>' +
           '<tr><th>価格帯</th><td>' + (hp.price_range || '—') + '</td></tr>' +
-          '<tr><th>目安年収</th><td>' + (reqInc ? '¥' + formatNumber(reqInc) + '万円' : '—') + '</td></tr>' +
+          '<tr><th>目安年収</th><td>' + (reqInc ? formatNumber(reqInc) + ' 万円〜' : '—') + '</td></tr>' +
           '</table></div>';
       }
 
@@ -1659,8 +1659,8 @@ function renderResults(data) {
         var comp = m.competition;
         html += '<div style="margin-bottom:16px;"><div style="font-size:14px; font-weight:700; margin-bottom:8px;">🏢 ⑥ 競合分析</div>' +
           '<div class="stat-grid">' +
-          '<div class="stat-box"><div class="stat-box__value">' + (comp.total_companies || '—') + '</div><div class="stat-box__label">工務店・HM数</div></div>' +
-          '<div class="stat-box"><div class="stat-box__value">' + (comp.local_builders || '—') + '</div><div class="stat-box__label">地場工務店</div></div>' +
+          '<div class="stat-box"><div class="stat-box__value">' + (comp.total_companies || '—') + ' 社</div><div class="stat-box__label">工務店・HM数</div></div>' +
+          '<div class="stat-box"><div class="stat-box__value">' + (comp.local_builders || '—') + ' 社</div><div class="stat-box__label">地場工務店</div></div>' +
           '</div></div>';
       }
 
