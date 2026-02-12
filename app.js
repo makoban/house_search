@@ -1112,15 +1112,15 @@ function buildMarketPromptForArea(analysis, estatPop, estatHousing, area, estatC
     '    "rented": 0\n' +
     '  },\n' +
     '  "housing_market": {\n' +
-    '    "used_home": { "avg_price": 0, "volume": 0, "avg_age": 0, "note": "中古戸建の状況" },\n' +
-    '    "renovation": { "market_size": 0, "avg_cost": 0, "demand_trend": "横ばい/増加/減少", "note": "リフォーム需要" },\n' +
-    '    "condo_sale": { "avg_price": 0, "supply": 0, "avg_sqm_price": 0, "note": "分譲マンションの状況" },\n' +
-    '    "condo_rental": { "avg_rent": 0, "vacancy_rate": 0, "supply": 0, "note": "賃貸マンションの状況" }\n' +
+    '    "used_home": { "avg_price": 0, "volume": 0, "avg_age": 0, "note": "中古戸建の状況" },  // avg_price: 万円単位（例: 2500 → 2500万円）\n' +
+    '    "renovation": { "market_size": 0, "avg_cost": 0, "demand_trend": "横ばい/増加/減少", "note": "リフォーム需要" },  // market_size: 億円単位, avg_cost: 万円単位\n' +
+    '    "condo_sale": { "avg_price": 0, "supply": 0, "avg_sqm_price": 0, "note": "分譲マンションの状況" },  // avg_price: 万円単位, avg_sqm_price: 万円/㎡単位\n' +
+    '    "condo_rental": { "avg_rent": 0, "vacancy_rate": 0, "supply": 0, "note": "賃貸マンションの状況" }  // avg_rent: 円/月単位（例: 75000 → 75,000円/月。万円単位は不可）\n' +
     '  },\n' +
     '  "land_price": {\n' +
-    '    "residential_sqm": 0,\n' +
-    '    "residential_tsubo": 0,\n' +
-    '    "commercial_sqm": 0,\n' +
+    '    "residential_sqm": 0,  // 円/㎡単位（例: 150000 → 150,000円/㎡。万円単位は不可）\n' +
+    '    "residential_tsubo": 0,  // 円/坪単位（例: 495000 → 495,000円/坪。万円単位は不可）\n' +
+    '    "commercial_sqm": 0,  // 円/㎡単位\n' +
     '    "yoy_change": "+0.0%"\n' +
     '  },\n' +
     '  "home_prices": {\n' +
@@ -1574,6 +1574,8 @@ function renderResults(data) {
         // 中古戸建
         if (hm.used_home) {
           var uh = hm.used_home;
+          // サニタイズ: 円単位で返された場合→万円に変換
+          if (uh.avg_price && uh.avg_price > 100000) uh.avg_price = Math.round(uh.avg_price / 10000);
           html += '<div style="padding:10px; border-radius:8px; background:rgba(30,41,59,0.5); border:1px solid rgba(99,102,241,0.1); margin-bottom:8px;">' +
             '<div style="font-weight:700; font-size:12px; margin-bottom:4px;">🏚️ 中古戸建</div>' +
             '<table class="data-table">' +
@@ -1600,6 +1602,8 @@ function renderResults(data) {
         // 分譲マンション
         if (hm.condo_sale) {
           var cs = hm.condo_sale;
+          // サニタイズ: 円単位で返された場合→万円に変換
+          if (cs.avg_price && cs.avg_price > 100000) cs.avg_price = Math.round(cs.avg_price / 10000);
           html += '<div style="padding:10px; border-radius:8px; background:rgba(30,41,59,0.5); border:1px solid rgba(99,102,241,0.1); margin-bottom:8px;">' +
             '<div style="font-weight:700; font-size:12px; margin-bottom:4px;">🏢 分譲マンション</div>' +
             '<table class="data-table">' +
@@ -1613,6 +1617,8 @@ function renderResults(data) {
         // 賃貸マンション
         if (hm.condo_rental) {
           var cr = hm.condo_rental;
+          // サニタイズ: AIが万円単位で返した場合→円に変換
+          if (cr.avg_rent && cr.avg_rent < 1000) cr.avg_rent = Math.round(cr.avg_rent * 10000);
           html += '<div style="padding:10px; border-radius:8px; background:rgba(30,41,59,0.5); border:1px solid rgba(99,102,241,0.1); margin-bottom:8px;">' +
             '<div style="font-weight:700; font-size:12px; margin-bottom:4px;">🏬 賃貸マンション</div>' +
             '<table class="data-table">' +
@@ -1629,6 +1635,10 @@ function renderResults(data) {
       // ④ 土地相場
       if (m.land_price) {
         var lp = m.land_price;
+        // サニタイズ: AIが万円単位で返した場合→円に変換
+        if (lp.residential_sqm && lp.residential_sqm < 1000) lp.residential_sqm = lp.residential_sqm * 10000;
+        if (lp.residential_tsubo && lp.residential_tsubo < 3000) lp.residential_tsubo = lp.residential_tsubo * 10000;
+        if (lp.commercial_sqm && lp.commercial_sqm < 1000) lp.commercial_sqm = lp.commercial_sqm * 10000;
         html += '<div style="margin-bottom:16px;"><div style="font-size:14px; font-weight:700; margin-bottom:8px;">🗺️ ④ 土地相場</div>' +
           '<table class="data-table">' +
           '<tr><th>住宅地 坪単価</th><td><span class="highlight">' + (lp.residential_tsubo ? formatNumber(lp.residential_tsubo) + ' 円/坪' : '—') + '</span></td></tr>' +
