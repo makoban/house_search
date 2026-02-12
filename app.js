@@ -1,5 +1,5 @@
 ﻿// ========================================
-// 不動産市場把握AI v4.5 - エリア名入力対応 + Cloudflare Workers Proxy
+// 不動産市場把握AI v4.6 - エリア名入力対応 + Cloudflare Workers Proxy
 // ブラウザから直接Gemini API + e-Stat APIを呼び出す
 // ========================================
 
@@ -189,6 +189,90 @@ async function fetchEstatHousing(prefecture) {
     return null;
   } catch (e) {
     console.warn('[e-Stat Housing] Error:', e);
+    return null;
+  }
+}
+
+// ---- 建築着工統計（利用関係別）via Worker Proxy ----
+async function fetchEstatConstruction(prefecture) {
+  var prefCode = PREFECTURE_CODES[prefecture];
+  if (!prefCode) return null;
+  try {
+    // 建築着工統計 0003400728: 利用関係別・都道府県別（新設住宅着工）
+    var url = WORKER_BASE + '/api/estat/query' +
+      '?statsDataId=0003400728' +
+      '&cdArea=' + prefCode +
+      '&limit=200';
+    var res = await fetch(url, { signal: AbortSignal.timeout(12000) });
+    if (!res.ok) return null;
+    var data = await res.json();
+    var result = data.GET_STATS_DATA && data.GET_STATS_DATA.STATISTICAL_DATA;
+    if (!result || !result.DATA_INF || !result.DATA_INF.VALUE) return null;
+    var values = result.DATA_INF.VALUE;
+
+    var totals = { total: 0, owner: 0, rental: 0, sale: 0 };
+    for (var i = 0; i < values.length; i++) {
+      var v = values[i];
+      var val = parseInt(v.$, 10);
+      if (isNaN(val) || val <= 0) continue;
+      // カテゴリコードで分類
+      var cat = v['@cat01'] || '';
+      if (cat.indexOf('001') >= 0 && !totals.total) totals.total = val;  // 総計
+      if (cat.indexOf('002') >= 0 && !totals.owner) totals.owner = val;  // 持家
+      if (cat.indexOf('003') >= 0 && !totals.rental) totals.rental = val; // 貸家
+      if (cat.indexOf('004') >= 0 && !totals.sale) totals.sale = val;    // 分譲
+    }
+    if (totals.total > 0) {
+      addLog('建築着工統計データ取得成功', 'success');
+      return { ...totals, source: '建築着工統計', from_estat: true };
+    }
+    return null;
+  } catch (e) {
+    console.warn('[e-Stat Construction] Error:', e);
+    return null;
+  }
+}
+
+// ---- 住宅・土地統計（詳細: 所有関係別・建て方別）via Worker Proxy ----
+async function fetchEstatHousingDetail(prefecture) {
+  var prefCode = PREFECTURE_CODES[prefecture];
+  if (!prefCode) return null;
+  try {
+    // 住宅・土地統計 0003445083: 所有関係別・建て方別住宅数
+    var url = WORKER_BASE + '/api/estat/query' +
+      '?statsDataId=0003445083' +
+      '&cdArea=' + prefCode +
+      '&limit=200';
+    var res = await fetch(url, { signal: AbortSignal.timeout(12000) });
+    if (!res.ok) return null;
+    var data = await res.json();
+    var result = data.GET_STATS_DATA && data.GET_STATS_DATA.STATISTICAL_DATA;
+    if (!result || !result.DATA_INF || !result.DATA_INF.VALUE) return null;
+    var values = result.DATA_INF.VALUE;
+
+    var detail = { owned: 0, rented: 0, apartment: 0, detached: 0, total: 0 };
+    for (var i = 0; i < values.length; i++) {
+      var v = values[i];
+      var val = parseInt(v.$, 10);
+      if (isNaN(val) || val <= 0) continue;
+      var cat = (v['@cat01'] || '') + (v['@cat02'] || '');
+      if (val > detail.total) detail.total = val;
+      // 持家系
+      if (cat.indexOf('010') >= 0 && val > detail.owned) detail.owned = val;
+      // 借家系
+      if (cat.indexOf('020') >= 0 && val > detail.rented) detail.rented = val;
+      // 共同住宅
+      if (cat.indexOf('030') >= 0 && val > detail.apartment) detail.apartment = val;
+      // 一戸建
+      if (cat.indexOf('040') >= 0 && val > detail.detached) detail.detached = val;
+    }
+    if (detail.total > 0) {
+      addLog('住宅詳細統計データ取得成功', 'success');
+      return { ...detail, source: '住宅・土地統計詳細', from_estat: true };
+    }
+    return null;
+  } catch (e) {
+    console.warn('[e-Stat HousingDetail] Error:', e);
     return null;
   }
 }
@@ -603,6 +687,14 @@ async function startAreaOnlyAnalysis(area, industryId) {
     addLog('  政府統計APIから住宅データを取得中...', 'info');
     var estatHousing = await fetchEstatHousing(area.prefecture);
 
+    // 建築着工統計（利用関係別）
+    addLog('  建築着工統計を取得中...', 'info');
+    var estatConstruction = await fetchEstatConstruction(area.prefecture);
+
+    // 住宅詳細統計（所有関係別・建て方別）
+    addLog('  住宅詳細統計を取得中...', 'info');
+    var estatHousingDetail = await fetchEstatHousingDetail(area.prefecture);
+
     // 不動産用AI市場分析（①〜⑥フォーマット）
     var areaForPrompt = {
       label: area.fullLabel,
@@ -615,7 +707,7 @@ async function startAreaOnlyAnalysis(area, industryId) {
       location: { prefecture: area.prefecture, city: area.city }
     };
 
-    var marketPrompt = buildMarketPromptForArea(dummyAnalysis, estatPop, estatHousing, areaForPrompt);
+    var marketPrompt = buildMarketPromptForArea(dummyAnalysis, estatPop, estatHousing, areaForPrompt, estatConstruction, estatHousingDetail);
 
     var marketRaw = await callGemini(marketPrompt);
     var marketData = parseJSON(marketRaw);
@@ -809,12 +901,16 @@ async function startUrlAnalysis(url) {
       // e-Stat data (per prefecture) - Workerプロキシ経由
       var areaEstatPop = null;
       var areaEstatHousing = null;
+      var areaEstatConstruction = null;
+      var areaEstatHousingDetail = null;
       if (area.prefecture) {
         areaEstatPop = await fetchEstatPopulation(area.prefecture, area.city);
         areaEstatHousing = await fetchEstatHousing(area.prefecture);
+        areaEstatConstruction = await fetchEstatConstruction(area.prefecture);
+        areaEstatHousingDetail = await fetchEstatHousingDetail(area.prefecture);
       }
 
-      var marketPrompt = buildMarketPromptForArea(analysis, areaEstatPop, areaEstatHousing, area);
+      var marketPrompt = buildMarketPromptForArea(analysis, areaEstatPop, areaEstatHousing, area, areaEstatConstruction, areaEstatHousingDetail);
       var marketRaw = await callGemini(marketPrompt);
       var marketData = parseJSON(marketRaw);
 
@@ -950,17 +1046,34 @@ function buildAnalysisPrompt(url, content) {
     '}';
 }
 
-function buildMarketPromptForArea(analysis, estatPop, estatHousing, area) {
+function buildMarketPromptForArea(analysis, estatPop, estatHousing, area, estatConstruction, estatHousingDetail) {
   var company = analysis.company || {};
   var pref = area.prefecture || '不明';
   var city = area.city || '';
 
   var estatInfo = '';
   if (estatPop && estatPop.from_estat) {
-    estatInfo += '\n\n【参考: e-Stat政府統計データ】\n' +
+    estatInfo += '\n\n【参考: 政府統計実データ】\n' +
       '・総人口: ' + formatNumber(estatPop.total_population) + '人\n' +
-      '・世帯数: ' + formatNumber(estatPop.households) + '世帯\n' +
-      'これらの実データを基準にして、他の項目も整合性のある値を推定してください。\n';
+      '・世帯数: ' + formatNumber(estatPop.households) + '世帯\n';
+  }
+  if (estatConstruction && estatConstruction.from_estat) {
+    estatInfo += '【建築着工統計（実データ）】\n' +
+      '・新設住宅着工総数: ' + formatNumber(estatConstruction.total) + '戸\n' +
+      '・持家: ' + formatNumber(estatConstruction.owner) + '戸\n' +
+      '・貸家: ' + formatNumber(estatConstruction.rental) + '戸\n' +
+      '・分譲: ' + formatNumber(estatConstruction.sale) + '戸\n';
+  }
+  if (estatHousingDetail && estatHousingDetail.from_estat) {
+    estatInfo += '【住宅・土地統計（実データ）】\n' +
+      '・住宅総数: ' + formatNumber(estatHousingDetail.total) + '戸\n' +
+      '・持家: ' + formatNumber(estatHousingDetail.owned) + '戸\n' +
+      '・借家: ' + formatNumber(estatHousingDetail.rented) + '戸\n' +
+      '・共同住宅: ' + formatNumber(estatHousingDetail.apartment) + '戸\n' +
+      '・一戸建: ' + formatNumber(estatHousingDetail.detached) + '戸\n';
+  }
+  if (estatInfo) {
+    estatInfo += 'これらの実データを基準にして、他の項目も整合性のある値を推定してください。\n';
   }
 
   return 'あなたは日本の不動産市場データの専門家です。\n' +
@@ -982,6 +1095,8 @@ function buildMarketPromptForArea(analysis, estatPop, estatHousing, area) {
     '  "construction": {\n' +
     '    "total": 0,\n' +
     '    "owner_occupied": 0,\n' +
+    '    "rental": 0,\n' +
+    '    "condo_sale": 0,\n' +
     '    "yoy_change": "+0.0%",\n' +
     '    "year": "2024",\n' +
     '    "source": "推計"\n' +
@@ -989,7 +1104,18 @@ function buildMarketPromptForArea(analysis, estatPop, estatHousing, area) {
     '  "housing": {\n' +
     '    "ownership_rate": 0,\n' +
     '    "vacancy_rate": 0,\n' +
-    '    "rental_vacancy": 0\n' +
+    '    "rental_vacancy": 0,\n' +
+    '    "total_units": 0,\n' +
+    '    "detached": 0,\n' +
+    '    "apartment": 0,\n' +
+    '    "owned": 0,\n' +
+    '    "rented": 0\n' +
+    '  },\n' +
+    '  "housing_market": {\n' +
+    '    "used_home": { "avg_price": 0, "volume": 0, "avg_age": 0, "note": "中古戸建の状況" },\n' +
+    '    "renovation": { "market_size": 0, "avg_cost": 0, "demand_trend": "横ばい/増加/減少", "note": "リフォーム需要" },\n' +
+    '    "condo_sale": { "avg_price": 0, "supply": 0, "avg_sqm_price": 0, "note": "分譲マンションの状況" },\n' +
+    '    "condo_rental": { "avg_rent": 0, "vacancy_rate": 0, "supply": 0, "note": "賃貸マンションの状況" }\n' +
     '  },\n' +
     '  "land_price": {\n' +
     '    "residential_sqm": 0,\n' +
@@ -1412,8 +1538,10 @@ function renderResults(data) {
         var con = m.construction;
         html += '<div style="margin-bottom:16px;"><div style="font-size:14px; font-weight:700; margin-bottom:8px;">🏗️ ② 建築着工統計</div>' +
           '<table class="data-table">' +
-          '<tr><th>持家 着工戸数</th><td><span class="highlight">' + formatNumber(con.owner_occupied) + '</span> 戸/年</td></tr>' +
           '<tr><th>全体 着工戸数</th><td>' + formatNumber(con.total) + ' 戸/年</td></tr>' +
+          '<tr><th>持家</th><td><span class="highlight">' + formatNumber(con.owner_occupied) + '</span> 戸/年</td></tr>' +
+          '<tr><th>貸家</th><td>' + formatNumber(con.rental || 0) + ' 戸/年</td></tr>' +
+          '<tr><th>分譲</th><td>' + formatNumber(con.condo_sale || 0) + ' 戸/年</td></tr>' +
           '<tr><th>前年比</th><td>' + (con.yoy_change || '—') + '</td></tr>' +
           '</table></div>';
       }
@@ -1421,12 +1549,81 @@ function renderResults(data) {
       // ③ 持ち家率
       if (m.housing) {
         var h = m.housing;
-        html += '<div style="margin-bottom:16px;"><div style="font-size:14px; font-weight:700; margin-bottom:8px;">🏡 ③ 持ち家率・空き家率</div>' +
+        html += '<div style="margin-bottom:16px;"><div style="font-size:14px; font-weight:700; margin-bottom:8px;">🏡 ③ 住宅統計データ</div>' +
           '<div class="stat-grid">' +
           '<div class="stat-box"><div class="stat-box__value">' + (h.ownership_rate || '—') + '%</div><div class="stat-box__label">持ち家率</div></div>' +
           '<div class="stat-box"><div class="stat-box__value">' + (h.vacancy_rate || '—') + '%</div><div class="stat-box__label">空き家率</div></div>' +
           '<div class="stat-box"><div class="stat-box__value">' + (h.rental_vacancy || '—') + '%</div><div class="stat-box__label">貸家空室率</div></div>' +
-          '</div></div>';
+          '</div>';
+        if (h.total_units || h.detached || h.apartment) {
+          html += '<table class="data-table" style="margin-top:8px;">' +
+            '<tr><th>住宅総数</th><td>' + formatNumber(h.total_units) + ' 戸</td></tr>' +
+            '<tr><th>一戸建</th><td>' + formatNumber(h.detached) + ' 戸</td></tr>' +
+            '<tr><th>共同住宅</th><td>' + formatNumber(h.apartment) + ' 戸</td></tr>' +
+            '<tr><th>持家</th><td>' + formatNumber(h.owned) + ' 戸</td></tr>' +
+            '<tr><th>借家</th><td>' + formatNumber(h.rented) + ' 戸</td></tr>' +
+            '</table>';
+        }
+        html += '</div>';
+      }
+
+      // ③-2 不動産市場（中古・リフォーム・マンション）
+      if (m.housing_market) {
+        var hm = m.housing_market;
+        html += '<div style="margin-bottom:16px;"><div style="font-size:14px; font-weight:700; margin-bottom:8px;">🏘️ 不動産市場（中古・リフォーム・マンション）</div>';
+        // 中古戸建
+        if (hm.used_home) {
+          var uh = hm.used_home;
+          html += '<div style="padding:10px; border-radius:8px; background:rgba(30,41,59,0.5); border:1px solid rgba(99,102,241,0.1); margin-bottom:8px;">' +
+            '<div style="font-weight:700; font-size:12px; margin-bottom:4px;">🏚️ 中古戸建</div>' +
+            '<table class="data-table">' +
+            '<tr><th>平均価格</th><td>' + (uh.avg_price ? formatNumber(uh.avg_price) + '万円' : '—') + '</td></tr>' +
+            '<tr><th>年間流通件数</th><td>' + (uh.volume ? formatNumber(uh.volume) + '件' : '—') + '</td></tr>' +
+            '<tr><th>平均築年数</th><td>' + (uh.avg_age ? uh.avg_age + '年' : '—') + '</td></tr>' +
+            '</table>' +
+            (uh.note ? '<div style="font-size:11px; color:var(--text-muted); margin-top:4px;">💬 ' + escapeHtml(uh.note) + '</div>' : '') +
+            '</div>';
+        }
+        // リフォーム
+        if (hm.renovation) {
+          var rv = hm.renovation;
+          html += '<div style="padding:10px; border-radius:8px; background:rgba(30,41,59,0.5); border:1px solid rgba(99,102,241,0.1); margin-bottom:8px;">' +
+            '<div style="font-weight:700; font-size:12px; margin-bottom:4px;">🔧 リフォーム市場</div>' +
+            '<table class="data-table">' +
+            '<tr><th>市場規模</th><td>' + (rv.market_size ? formatNumber(rv.market_size) + '億円' : '—') + '</td></tr>' +
+            '<tr><th>平均工事費</th><td>' + (rv.avg_cost ? formatNumber(rv.avg_cost) + '万円' : '—') + '</td></tr>' +
+            '<tr><th>需要トレンド</th><td>' + (rv.demand_trend || '—') + '</td></tr>' +
+            '</table>' +
+            (rv.note ? '<div style="font-size:11px; color:var(--text-muted); margin-top:4px;">💬 ' + escapeHtml(rv.note) + '</div>' : '') +
+            '</div>';
+        }
+        // 分譲マンション
+        if (hm.condo_sale) {
+          var cs = hm.condo_sale;
+          html += '<div style="padding:10px; border-radius:8px; background:rgba(30,41,59,0.5); border:1px solid rgba(99,102,241,0.1); margin-bottom:8px;">' +
+            '<div style="font-weight:700; font-size:12px; margin-bottom:4px;">🏢 分譲マンション</div>' +
+            '<table class="data-table">' +
+            '<tr><th>平均価格</th><td>' + (cs.avg_price ? formatNumber(cs.avg_price) + '万円' : '—') + '</td></tr>' +
+            '<tr><th>年間供給戸数</th><td>' + (cs.supply ? formatNumber(cs.supply) + '戸' : '—') + '</td></tr>' +
+            '<tr><th>平均㎡単価</th><td>' + (cs.avg_sqm_price ? formatNumber(cs.avg_sqm_price) + '万円/㎡' : '—') + '</td></tr>' +
+            '</table>' +
+            (cs.note ? '<div style="font-size:11px; color:var(--text-muted); margin-top:4px;">💬 ' + escapeHtml(cs.note) + '</div>' : '') +
+            '</div>';
+        }
+        // 賃貸マンション
+        if (hm.condo_rental) {
+          var cr = hm.condo_rental;
+          html += '<div style="padding:10px; border-radius:8px; background:rgba(30,41,59,0.5); border:1px solid rgba(99,102,241,0.1); margin-bottom:8px;">' +
+            '<div style="font-weight:700; font-size:12px; margin-bottom:4px;">🏬 賃貸マンション</div>' +
+            '<table class="data-table">' +
+            '<tr><th>平均家賃</th><td>' + (cr.avg_rent ? formatNumber(cr.avg_rent) + '円/月' : '—') + '</td></tr>' +
+            '<tr><th>空室率</th><td>' + (cr.vacancy_rate ? cr.vacancy_rate + '%' : '—') + '</td></tr>' +
+            '<tr><th>賃貸供給数</th><td>' + (cr.supply ? formatNumber(cr.supply) + '戸' : '—') + '</td></tr>' +
+            '</table>' +
+            (cr.note ? '<div style="font-size:11px; color:var(--text-muted); margin-top:4px;">💬 ' + escapeHtml(cr.note) + '</div>' : '') +
+            '</div>';
+        }
+        html += '</div>';
       }
 
       // ④ 土地相場
