@@ -1012,6 +1012,16 @@ function buildMarketPromptForArea(analysis, estatPop, estatHousing, area) {
     '    "annual_converts": 0,\n' +
     '    "per_company": 0,\n' +
     '    "ai_insight": "このエリアでの営業戦略に関する提言"\n' +
+    '  },\n' +
+    '  "advertising": {\n' +
+    '    "age_distribution": { "under_30_pct": 0, "age_30_49_pct": 0, "age_50_64_pct": 0, "over_65_pct": 0 },\n' +
+    '    "channels": [\n' +
+    '      { "name": "SNS広告", "score": 0, "platforms": "Instagram, LINE, YouTube等", "reason": "有効性の理由" },\n' +
+    '      { "name": "WEB広告(リスティング等)", "score": 0, "platforms": "Google広告, SUUMO, HOME\'S等", "reason": "有効性の理由" },\n' +
+    '      { "name": "チラシ・DM", "score": 0, "platforms": "折込チラシ, ポスティング, DM等", "reason": "有効性の理由" }\n' +
+    '    ],\n' +
+    '    "best_channel": "最も効果的なチャネル名",\n' +
+    '    "strategy_summary": "このエリアの年齢構成に基づく不動産広告戦略の総合提言（2-3文）"\n' +
     '  }\n' +
     '}';
 }
@@ -1469,6 +1479,60 @@ function renderResults(data) {
           '</table>';
         if (pot.ai_insight) {
           html += '<div class="summary-box" style="margin-top:10px"><div class="summary-box__title">📌 AIからの提言</div><div class="summary-box__text">' + escapeHtml(pot.ai_insight) + '</div></div>';
+        }
+        html += '</div>';
+      }
+
+      // ⑦ 広告効果分析
+      if (m.advertising) {
+        var ad = m.advertising;
+        var ageDist = ad.age_distribution || {};
+        var channels = ad.channels || [];
+        html += '<div style="margin-bottom:8px;"><div style="font-size:14px; font-weight:700; margin-bottom:8px;">📢 広告効果分析（年齢層ベース）</div>';
+
+        // 年齢分布バー
+        var u30 = ageDist.under_30_pct || 0;
+        var a3049 = ageDist.age_30_49_pct || 0;
+        var a5064 = ageDist.age_50_64_pct || 0;
+        var o65 = ageDist.over_65_pct || 0;
+        html += '<div style="margin-bottom:12px;">' +
+          '<div style="font-size:12px; font-weight:600; margin-bottom:6px; color:var(--text-secondary);">年齢構成</div>' +
+          '<div style="display:flex; height:24px; border-radius:8px; overflow:hidden; font-size:10px; font-weight:700;">' +
+          '<div style="width:' + u30 + '%; background:#818cf8; display:flex; align-items:center; justify-content:center; color:#fff;" title="30歳未満">' + (u30 >= 10 ? u30 + '%' : '') + '</div>' +
+          '<div style="width:' + a3049 + '%; background:#10b981; display:flex; align-items:center; justify-content:center; color:#fff;" title="30-49歳">' + (a3049 >= 10 ? a3049 + '%' : '') + '</div>' +
+          '<div style="width:' + a5064 + '%; background:#f59e0b; display:flex; align-items:center; justify-content:center; color:#fff;" title="50-64歳">' + (a5064 >= 10 ? a5064 + '%' : '') + '</div>' +
+          '<div style="width:' + o65 + '%; background:#ef4444; display:flex; align-items:center; justify-content:center; color:#fff;" title="65歳以上">' + (o65 >= 10 ? o65 + '%' : '') + '</div>' +
+          '</div>' +
+          '<div style="display:flex; gap:12px; margin-top:4px; font-size:10px; color:var(--text-muted);">' +
+          '<span>🟣 30歳未満 ' + u30 + '%</span><span>🟢 30-49歳 ' + a3049 + '%</span>' +
+          '<span>🟡 50-64歳 ' + a5064 + '%</span><span>🔴 65歳以上 ' + o65 + '%</span></div></div>';
+
+        // チャネル別スコア
+        var medals = ['🥇', '🥈', '🥉'];
+        var sortedCh = channels.slice().sort(function(a, b) { return (b.score || 0) - (a.score || 0); });
+        html += '<div style="font-size:12px; font-weight:600; margin-bottom:6px; color:var(--text-secondary);">推奨広告チャネル</div>';
+        sortedCh.forEach(function(ch, idx) {
+          var score = ch.score || 0;
+          var isBest = (idx === 0);
+          var barColor = isBest ? '#10b981' : (idx === 1 ? '#3b82f6' : '#6b7280');
+          var medal = medals[idx] || '　';
+          html += '<div style="margin-bottom:8px; padding:10px; border-radius:8px; background:' + (isBest ? 'rgba(16,185,129,0.1)' : 'rgba(30,41,59,0.5)') + '; border:1px solid ' + (isBest ? 'rgba(16,185,129,0.3)' : 'rgba(99,102,241,0.1)') + ';">' +
+            '<div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">' +
+            '<span style="font-size:16px;">' + medal + '</span>' +
+            '<span style="font-weight:700; font-size:13px; color:var(--text-primary);">' + escapeHtml(ch.name || '') + '</span>' +
+            '<span style="font-size:18px; font-weight:800; color:' + barColor + '; margin-left:auto;">' + score + '<span style="font-size:11px; font-weight:400;">点</span></span>' +
+            (isBest ? '<span style="background:#10b981; color:#fff; font-size:10px; font-weight:700; padding:2px 8px; border-radius:10px;">推奨</span>' : '') +
+            '</div>' +
+            '<div style="height:6px; background:rgba(255,255,255,0.1); border-radius:3px; overflow:hidden; margin-bottom:4px;">' +
+            '<div style="height:100%; width:' + score + '%; background:' + barColor + '; border-radius:3px; transition:width 0.5s;"></div></div>' +
+            '<div style="font-size:11px; color:var(--text-muted);">📍 ' + escapeHtml(ch.platforms || '') + '</div>' +
+            '<div style="font-size:11px; color:var(--text-secondary); margin-top:2px;">→ ' + escapeHtml(ch.reason || '') + '</div>' +
+            '</div>';
+        });
+
+        // 戦略サマリー
+        if (ad.strategy_summary) {
+          html += '<div class="summary-box" style="margin-top:10px"><div class="summary-box__title">💡 広告戦略の提言</div><div class="summary-box__text">' + escapeHtml(ad.strategy_summary) + '</div></div>';
         }
         html += '</div>';
       }
